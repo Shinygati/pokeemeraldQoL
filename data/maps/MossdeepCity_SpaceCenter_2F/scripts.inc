@@ -240,6 +240,7 @@ MossdeepCity_SpaceCenter_2F_EventScript_ChoosePartyForMultiBattle::
 	special SavePlayerParty
 	fadescreen FADE_TO_BLACK
 	special ChooseHalfPartyForBattle
+	waitstate
 	goto_if_ne VAR_RESULT, 0, MossdeepCity_SpaceCenter_2F_EventScript_DoStevenMultiBattle
 	special LoadPlayerParty
 	goto MossdeepCity_SpaceCenter_2F_EventScript_ReadyForBattlePrompt
@@ -250,12 +251,14 @@ MossdeepCity_SpaceCenter_2F_EventScript_DoStevenMultiBattle::
 	setvar VAR_0x8004, SPECIAL_BATTLE_STEVEN
 	setvar VAR_0x8005, 0
 	special DoSpecialTrainerBattle
+	waitstate
 	frontier_saveparty
 	special LoadPlayerParty
 	switch VAR_RESULT
 	case 1, MossdeepCity_SpaceCenter_2F_EventScript_DefeatedMaxieTabitha
 	fadescreen FADE_TO_BLACK
 	special SetCB2WhiteOut
+	waitstate
 
 MossdeepCity_SpaceCenter_2F_EventScript_DefeatedMaxieTabitha::
 	msgbox MossdeepCity_SpaceCenter_2F_Text_MaxieWeFailedIsAquaAlsoMisguided, MSGBOX_DEFAULT

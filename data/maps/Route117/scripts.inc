@@ -203,4 +203,109 @@ Route117_Text_RouteSignMauville:
 Route117_Text_DayCareSign:
 	.string "POKéMON DAY CARE\n"
 	.string "“Let us raise your POKéMON.”$"
+	
+Route117_EventScript_DailyEgg_Start::
+    lock
+    faceplayer
+    goto_if_set FLAG_DAILY_RANDOM_EGG_NPC, Route117_EventScript_DailyEgg_AlreadyTaken
+	goto_if_unset FLAG_DAILY_RANDOM_EGG_NPC, Route117_EventScript_DailyEgg_Intro
+	
+Route117_EventScript_DailyEgg_Intro::
+    msgbox Route117_Text_DailyEgg_Intro, MSGBOX_DEFAULT
+	compare VAR_DAILY_RANDOM_EGG_NPC, 9
+	goto_if_eq Route117_EventScript_DailyEgg_Received10
+	compare VAR_DAILY_RANDOM_EGG_NPC, 19
+	goto_if_eq Route117_EventScript_DailyEgg_Received20
+	msgbox Route117_Text_DailyEgg_Ask, MSGBOX_YESNO
+	goto_if_eq VAR_RESULT, FALSE, Route117_EventScript_DailyEgg_No
+    getpartysize
+    compare VAR_RESULT, 6
+    goto_if_eq Route117_EventScript_DailyEgg_PartyFull
+    special GiveRandomEgg
+    goto Route117_EventScript_DailyEgg_Finish
 
+Route117_EventScript_DailyEgg_No::
+    msgbox Route117_Text_DailyEgg_No, MSGBOX_DEFAULT
+    release
+    end
+
+Route117_EventScript_DailyEgg_Received10::
+    msgbox Route117_Text_DailyEgg_Received10, MSGBOX_DEFAULT
+    giveegg SPECIES_PORYGON
+    goto Route117_EventScript_DailyEgg_Finish
+
+Route117_EventScript_DailyEgg_Received20::
+	msgbox Route117_Text_DailyEgg_Received20, MSGBOX_DEFAULT
+	giveegg SPECIES_TOGEPI
+    goto Route117_EventScript_DailyEgg_Finish
+
+Route117_EventScript_DailyEgg_Finish::
+    playfanfare MUS_OBTAIN_ITEM
+    msgbox Route117_Text_DailyEgg_Received, MSGBOX_DEFAULT
+    waitfanfare
+    setflag FLAG_DAILY_RANDOM_EGG_NPC
+	addvar VAR_DAILY_RANDOM_EGG_NPC, 1
+	msgbox Route117_Text_DailyEgg_ComeFindTomorrow, MSGBOX_DEFAULT
+    release
+    end
+
+Route117_EventScript_DailyEgg_PartyFull::
+    msgbox Route117_Text_DailyEgg_PartyFull, MSGBOX_DEFAULT
+    release
+    end
+
+Route117_EventScript_DailyEgg_AlreadyTaken::
+    msgbox Route117_Text_DailyEgg_AlreadyTaken, MSGBOX_DEFAULT
+    release
+    end
+
+
+Route117_Text_DailyEgg_Intro:
+	.string "WOMAN: I work for the POKéMON DAYCARE.\p"
+	.string "I give out POKéMON EGGS that other\n"
+	.string "trainers haven't wanted.$"
+
+Route117_Text_DailyEgg_Ask:
+	.string "Would you like to receive one today?$"
+
+Route117_Text_DailyEgg_No:
+	.string "Hmmm… OK then.$"
+
+Route117_Text_DailyEgg_Received:
+    .string "{PLAYER} received an Egg from the woman!$"
+
+Route117_Text_DailyEgg_PartyFull:
+    .string "Hmmm… Your party is full.\n"
+    .string "Come back when you have space.$"
+
+Route117_Text_DailyEgg_AlreadyTaken:
+    .string "Hmmm… Don't be greedy!\p"
+	.string "You already received an EGG from me\n"
+	.string "today.\n"
+    .string "Come back tomorrow.$"
+
+Route117_Text_DailyEgg_ComeFindTomorrow:
+	.string "Come find me again tomorrow and I should\n"
+	.string "have more eggs.$"
+
+Route117_Text_DailyEgg_Received10:
+	.string "Hmmm… This is the 10th EGG I've given to\n"
+	.string "you, I wonder if this EGG will be that\l"
+	.string "special POKéMON you've been waiting for!$"
+
+Route117_Text_DailyEgg_Received20:
+	.string "Hmmm… You're very keen on hatching EGGS\n"
+	.string "aren't you?\p"
+	.string "This is the 20th EGG I've given to you.\p"
+	.string "Something tells me that this EGG will be\l"
+	.string "one that will bring you lots of joy!$"
+
+
+//debug for testing
+Route117_EventScript_DailyEgg_ClearFlag::
+    clearflag FLAG_DAILY_RANDOM_EGG_NPC
+	msgbox Route117_Text_DailyEgg_ClearFlag MSGBOX_DEFAULT
+	end
+
+Route117_Text_DailyEgg_ClearFlag:
+	.string "FLAG DAILY RANDOM EGG cleared.$"

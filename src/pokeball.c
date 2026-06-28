@@ -1176,11 +1176,9 @@ static void SpriteCB_TradePokeball(struct Sprite *sprite)
         // sDelay re-used to store task id but never read
         sprite->sDelay = LaunchBallFadeMonTaskForPokeball(TRUE, monPalNum, selectedPalettes);
         sprite->callback = SpriteCB_TradePokeballSendOff;
-#ifdef BUGFIX
         // FIX: If this is used on a sprite that has previously had an affine animation, it will not
         // play the shrink anim properly due to being paused. Works together with the fix to ResetSpriteAfterAnim.
         gSprites[monSpriteId].affineAnimPaused = FALSE;
-#endif // BUGFIX
         StartSpriteAffineAnim(&gSprites[monSpriteId], BATTLER_AFFINE_RETURN);
         AnimateSprite(&gSprites[monSpriteId]);
         gSprites[monSpriteId].data[1] = 0;
@@ -1319,10 +1317,6 @@ void LoadBallGfx(u8 ballId)
     switch (ballId)
     {
     case BALL_DIVE:
-// BUGFIX: The thrown Timer Ball has a unique fully open sprite that is never used, as it was never included in this case
-#ifdef BUGFIX
-    case BALL_TIMER:
-#endif
     case BALL_LUXURY:
     case BALL_PREMIER:
         break;

@@ -23,6 +23,7 @@
 #include "window.h"
 #include "constants/songs.h"
 #include "constants/rgb.h"
+#include "random.h"
 
 #define STARTER_MON_COUNT   3
 
@@ -32,6 +33,11 @@
 
 #define TAG_POKEBALL_SELECT 0x1000
 #define TAG_STARTER_CIRCLE  0x1001
+
+#define FLAG_STARTER_SHINY_0 0x40
+#define FLAG_STARTER_SHINY_1 0x41
+#define FLAG_STARTER_SHINY_2 0x42
+#define STARTER_SHINY 0xFF
 
 static void CB2_StarterChoose(void);
 static void ClearStarterLabel(void);
@@ -44,21 +50,27 @@ static void Task_DeclineStarter(u8 taskId);
 static void Task_MoveStarterChooseCursor(u8 taskId);
 static void Task_CreateStarterLabel(u8 taskId);
 static void CreateStarterPokemonLabel(u8 selection);
-static u8 CreatePokemonFrontSprite(u16 species, u8 x, u8 y);
+static u8 CreatePokemonFrontSprite(u16 species, u8 x, u8 y, u8 SpeciesID);
 static void SpriteCB_SelectionHand(struct Sprite *sprite);
 static void SpriteCB_Pokeball(struct Sprite *sprite);
 static void SpriteCB_StarterPokemon(struct Sprite *sprite);
 
+static u8 gChosenStarterId;
+static u8 sStarterShinyId;
+static u8 TREECKO_SHINY;
+static u8 TORCHIC_SHINY;
+static u8 MUDKIP_SHINY;
+
 static u16 sStarterLabelWindowId;
 
-const u16 gBirchBagGrass_Pal[] = INCGFX_U16("graphics/starter_choose/tiles.png", ".gbapal");
-static const u16 sPokeballSelection_Pal[] = INCGFX_U16("graphics/starter_choose/pokeball_selection.png", ".gbapal");
-static const u16 sStarterCircle_Pal[] = INCGFX_U16("graphics/starter_choose/starter_circle.png", ".gbapal");
-const u32 gBirchBagTilemap[] = INCGFX_U32("graphics/starter_choose/birch_bag.bin", ".lz");
-const u32 gBirchGrassTilemap[] = INCGFX_U32("graphics/starter_choose/birch_grass.bin", ".lz");
-const u32 gBirchBagGrass_Gfx[] = INCGFX_U32("graphics/starter_choose/tiles.png", ".4bpp.lz");
-const u32 gPokeballSelection_Gfx[] = INCGFX_U32("graphics/starter_choose/pokeball_selection.png", ".4bpp.lz");
-static const u32 sStarterCircle_Gfx[] = INCGFX_U32("graphics/starter_choose/starter_circle.png", ".4bpp.lz");
+const u16 gBirchBagGrass_Pal[] = INCBIN_U16("graphics/starter_choose/tiles.gbapal");
+static const u16 sPokeballSelection_Pal[] = INCBIN_U16("graphics/starter_choose/pokeball_selection.gbapal");
+static const u16 sStarterCircle_Pal[] = INCBIN_U16("graphics/starter_choose/starter_circle.gbapal");
+const u32 gBirchBagTilemap[] = INCBIN_U32("graphics/starter_choose/birch_bag.bin.lz");
+const u32 gBirchGrassTilemap[] = INCBIN_U32("graphics/starter_choose/birch_grass.bin.lz");
+const u32 gBirchBagGrass_Gfx[] = INCBIN_U32("graphics/starter_choose/tiles.4bpp.lz");
+const u32 gPokeballSelection_Gfx[] = INCBIN_U32("graphics/starter_choose/pokeball_selection.4bpp.lz");
+static const u32 sStarterCircle_Gfx[] = INCBIN_U32("graphics/starter_choose/starter_circle.4bpp.lz");
 
 static const struct WindowTemplate sWindowTemplates[] =
 {
@@ -375,6 +387,7 @@ void CB2_ChooseStarter(void)
 {
     u8 taskId;
     u8 spriteId;
+	u8 i;
 
     SetVBlankCallback(NULL);
 
@@ -460,6 +473,36 @@ void CB2_ChooseStarter(void)
     gSprites[spriteId].sBallId = 2;
 
     sStarterLabelWindowId = WINDOW_NONE;
+	TREECKO_SHINY = 0;
+	TORCHIC_SHINY = 0;
+	MUDKIP_SHINY = 0;
+	sStarterShinyId = 255;
+	
+
+		if (Random32() % 4096 == 0)
+		{
+	
+			FlagSet(FLAG_STARTER_SHINY_0);
+			sStarterShinyId = 0;
+			TREECKO_SHINY = 1;
+			gSoftResetDisabled = TRUE;
+		}
+		
+		if (Random32() % 4096 == 0)
+		{
+			FlagSet(FLAG_STARTER_SHINY_1);
+			sStarterShinyId = 1;
+			TORCHIC_SHINY = 1;
+			gSoftResetDisabled = TRUE;
+		}
+		
+		if (Random32() % 4096 == 0)
+		{
+			FlagSet(FLAG_STARTER_SHINY_2);
+			sStarterShinyId = 2;
+			MUDKIP_SHINY = 1;
+			gSoftResetDisabled = TRUE;
+		}
 }
 
 static void CB2_StarterChoose(void)
@@ -481,6 +524,31 @@ static void Task_StarterChoose(u8 taskId)
     gTasks[taskId].func = Task_HandleStarterChooseInput;
 }
 
+void SetChosenStarterShinyFlag(void)
+{
+    FlagClear(FLAG_STARTER_SHINY_0);
+    FlagClear(FLAG_STARTER_SHINY_1);
+    FlagClear(FLAG_STARTER_SHINY_2);
+
+    switch (gChosenStarterId)
+    {
+    case 0: // Treecko
+        if (TREECKO_SHINY == 1)
+            FlagSet(FLAG_STARTER_SHINY_0);
+        break;
+
+    case 1: // Torchic
+        if (TORCHIC_SHINY == 1)
+            FlagSet(FLAG_STARTER_SHINY_1);
+        break;
+
+    case 2: // Mudkip
+        if (MUDKIP_SHINY == 1)
+            FlagSet(FLAG_STARTER_SHINY_2);
+        break;
+    }
+}
+
 static void Task_HandleStarterChooseInput(u8 taskId)
 {
     u8 selection = gTasks[taskId].tStarterSelection;
@@ -490,13 +558,14 @@ static void Task_HandleStarterChooseInput(u8 taskId)
         u8 spriteId;
 
         ClearStarterLabel();
-
+		
+		gChosenStarterId = gTasks[taskId].tStarterSelection;
         // Create white circle background
         spriteId = CreateSprite(&sSpriteTemplate_StarterCircle, sPokeballCoords[selection][0], sPokeballCoords[selection][1], 1);
         gTasks[taskId].tCircleSpriteId = spriteId;
 
         // Create Pokémon sprite
-        spriteId = CreatePokemonFrontSprite(GetStarterPokemon(gTasks[taskId].tStarterSelection), sPokeballCoords[selection][0], sPokeballCoords[selection][1]);
+        spriteId = CreatePokemonFrontSprite(GetStarterPokemon(gTasks[taskId].tStarterSelection), sPokeballCoords[selection][0], sPokeballCoords[selection][1], gChosenStarterId);
         gSprites[spriteId].affineAnims = &sAffineAnims_StarterPokemon;
         gSprites[spriteId].callback = SpriteCB_StarterPokemon;
 
@@ -546,6 +615,7 @@ static void Task_HandleConfirmStarterInput(u8 taskId)
         gSpecialVar_Result = gTasks[taskId].tStarterSelection;
         ResetAllPicSprites();
         SetMainCallback2(gMain.savedCallback);
+		SetChosenStarterShinyFlag();
         break;
     case 1:  // NO
     case MENU_B_PRESSED:
@@ -626,11 +696,26 @@ static void Task_CreateStarterLabel(u8 taskId)
     gTasks[taskId].func = Task_HandleStarterChooseInput;
 }
 
-static u8 CreatePokemonFrontSprite(u16 species, u8 x, u8 y)
+static bool8 IsStarterShiny(u8 starterId)
+{
+    switch (starterId)
+    {
+    case 0:
+        return TREECKO_SHINY;
+    case 1:
+        return TORCHIC_SHINY;
+    case 2:
+        return MUDKIP_SHINY;
+    default:
+        return FALSE;
+    }
+}
+
+static u8 CreatePokemonFrontSprite(u16 species, u8 x, u8 y, u8 SpeciesID)
 {
     u8 spriteId;
 
-    spriteId = CreateMonPicSprite_Affine(species, SHINY_ODDS, 0, MON_PIC_AFFINE_FRONT, x, y, 14, TAG_NONE);
+	spriteId = CreateMonPicSprite_Affine(species, IsStarterShiny(gChosenStarterId) ? 0 : SHINY_ODDS, 0, MON_PIC_AFFINE_FRONT, x, y, 14, TAG_NONE);
     gSprites[spriteId].oam.priority = 0;
     return spriteId;
 }

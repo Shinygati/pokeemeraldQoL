@@ -14,10 +14,10 @@ extern const u8 gText_Peekaboo[];
 
 static void CB2_HandleGivenWaldaPhrase(void);
 static u32 GetWaldaPhraseInputCase(u8 *);
-static bool32 TryCalculateWallpaper(u16 *, u16 *, u8 *, u8 *, u16, const u8 *);
-static void SetWallpaperDataFromLetter(u8 *, const u8 *, u32, u32, u32);
-static u32 GetWallpaperDataBits(const u8 *, u32, u32);
-static void RotateWallpaperDataLeft(u8 *, u32, u32);
+static bool32 TryCalculateWallpaper(u16 *, u16 *, u8 *, u8 *, u16, u8 *);
+static void SetWallpaperDataFromLetter(u8 *, u8 *, u32, u32, u32);
+static u32 GetWallpaperDataBits(u8 *, u32, u32);
+static void RotateWallpaperDataLeft(u8 *, s32, s32);
 static void MaskWallpaperData(u8 *, u32, u8);
 
 // There are 32 (2^5) unique letters allowed in a successful phrase for Walda.
@@ -140,11 +140,12 @@ static u8 GetLetterTableId(u8 letter)
 #define KEY          data[8]
 #define NUM_WALLPAPER_DATA_BYTES 9
 #define TO_BIT_OFFSET(i)  (3 + (8 * (i))) // Convert a position in the phrase to a bit number into the wallpaper data array
-static bool32 TryCalculateWallpaper(u16 *backgroundClr, u16 *foregroundClr, u8 *iconId, u8 *patternId, u16 trainerId, const u8 *phrase)
+static bool32 TryCalculateWallpaper(u16 *backgroundClr, u16 *foregroundClr, u8 *iconId, u8 *patternId, u16 trainerId, u8 *phrase)
 {
     s32 i;
-    u8 data[NUM_WALLPAPER_DATA_BYTES];
+    ALIGNED(2) u8 data[NUM_WALLPAPER_DATA_BYTES];
     u8 charsByTableId[WALDA_PHRASE_LENGTH];
+    u16 *ptr;
 
     // Reject any phrase that does not use the full length
     if (StringLength(phrase) != WALDA_PHRASE_LENGTH)
@@ -185,8 +186,11 @@ static bool32 TryCalculateWallpaper(u16 *backgroundClr, u16 *foregroundClr, u8 *
         return FALSE;
 
     // Successful phrase, save resulting wallpaper
-    memcpy(backgroundClr, &BG_COLOR_LO, 2);
-    memcpy(foregroundClr, &FG_COLOR_LO, 2);
+    ptr = (u16 *) &BG_COLOR_LO;
+    *backgroundClr = *ptr;
+
+    ptr = (u16 *) &FG_COLOR_LO;
+    *foregroundClr = *ptr;
 
     *iconId = ICON_ID;
     *patternId = PATTERN_ID;
@@ -194,12 +198,12 @@ static bool32 TryCalculateWallpaper(u16 *backgroundClr, u16 *foregroundClr, u8 *
     return TRUE;
 }
 
-static void RotateWallpaperDataLeft(u8 *data, u32 size, u32 numShifts)
+static void RotateWallpaperDataLeft(u8 *data, s32 size, s32 numShifts)
 {
-    s32 j;
+    s32 i, j;
     u8 temp1, temp2;
 
-    while (numShifts--)
+    for (i = numShifts - 1; i != -1; i--)
     {
         temp1 = (data[0] & (1 << 7)) >> 7;
 
@@ -223,7 +227,7 @@ static void MaskWallpaperData(u8 *data, u32 size, u8 mask)
         data[i] ^= mask;
 }
 
-static bool8 GetWallpaperDataBit(const u8 *data, u32 bitNum)
+static bool8 GetWallpaperDataBit(u8 *data, u32 bitNum)
 {
     u32 i = bitNum / 8;
     u32 flag = (1 << 7) >> (bitNum % 8);
@@ -247,7 +251,7 @@ static void ClearWallpaperDataBit(u8 *data, u32 bitNum)
     data[i] &= mask;
 }
 
-static void SetWallpaperDataFromLetter(u8 *data, const u8 *letterTableIds, u32 setOffset, u32 getOffset, u32 numBits)
+static void SetWallpaperDataFromLetter(u8 *data, u8 *letterTableIds, u32 setOffset, u32 getOffset, u32 numBits)
 {
     u32 i;
 
@@ -260,7 +264,7 @@ static void SetWallpaperDataFromLetter(u8 *data, const u8 *letterTableIds, u32 s
     }
 }
 
-static u32 GetWallpaperDataBits(const u8 *data, u32 offset, u32 numBits)
+static u32 GetWallpaperDataBits(u8 *data, u32 offset, u32 numBits)
 {
     u32 bits, i;
 

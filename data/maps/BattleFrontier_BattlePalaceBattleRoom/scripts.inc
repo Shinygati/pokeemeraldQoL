@@ -277,6 +277,7 @@ BattleFrontier_BattlePalaceBattleRoom_EventScript_DoPalaceBattle::
 	setvar VAR_0x8004, SPECIAL_BATTLE_PALACE
 	setvar VAR_0x8005, 0
 	special DoSpecialTrainerBattle
+	waitstate
 	frontier_restorehelditems
 	special HealPlayerParty
 	frontier_resetsketch

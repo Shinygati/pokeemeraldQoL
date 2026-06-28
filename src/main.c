@@ -24,6 +24,12 @@
 #include "main.h"
 #include "trainer_hill.h"
 #include "constants/rgb.h"
+#include "gba/gba.h"
+#include "start_menu.h"
+#include "constants/flags.h"
+#include "event_data.h"
+
+#define FLAG_STARTMENU_OPENED 0x048
 
 static void VBlankIntr(void);
 static void HBlankIntr(void);
@@ -69,16 +75,14 @@ COMMON_DATA u8 gLinkVSyncDisabled = 0;
 COMMON_DATA u32 IntrMain_Buffer[0x200] = {0};
 COMMON_DATA s8 gPcmDmaCounter = 0;
 
-static EWRAM_DATA u16 sTrainerId = 0;
+static EWRAM_DATA u32 sTrainerId = 0;
 
 //EWRAM_DATA void (**gFlashTimerIntrFunc)(void) = NULL;
 
 static void UpdateLinkAndCallCallbacks(void);
 static void InitMainCallbacks(void);
 static void CallCallbacks(void);
-#ifdef BUGFIX
 static void SeedRngWithRtc(void);
-#endif
 static void ReadKeys(void);
 void InitIntrHandlers(void);
 static void WaitForVBlank(void);
@@ -90,10 +94,10 @@ void AgbMain(void)
 {
     // Modern compilers are liberal with the stack on entry to this function,
     // so RegisterRamReset may crash if it resets IWRAM.
-#if !MODERN
+	u32 now;
+	u32 LockTime;
     RegisterRamReset(RESET_ALL);
-#endif //MODERN
-    *(vu16 *)BG_PLTT = RGB_WHITE; // Set the backdrop to white on startup
+	*(vu16 *)BG_PLTT = RGB_WHITE; // Set the backdrop to white on startup
     InitGpuRegManager();
     REG_WAITCNT = WAITCNT_PREFETCH_ENABLE | WAITCNT_WS0_S_1 | WAITCNT_WS0_N_3;
     InitKeys();
@@ -105,9 +109,8 @@ void AgbMain(void)
     CheckForFlashMemory();
     InitMainCallbacks();
     InitMapMusic();
-#ifdef BUGFIX
+	SeedRngAndSetTrainerId();
     SeedRngWithRtc(); // see comment at SeedRngWithRtc definition below
-#endif
     ClearDma3Requests();
     ResetBgs();
     SetDefaultFontsPointer();
@@ -132,15 +135,30 @@ void AgbMain(void)
     {
         ReadKeys();
 
-        if (gSoftResetDisabled == FALSE
+        if ((gSoftResetDisabled == FALSE
          && JOY_HELD_RAW(A_BUTTON)
-         && JOY_HELD_RAW(B_START_SELECT) == B_START_SELECT)
+         && JOY_HELD_RAW(B_START_SELECT) == B_START_SELECT) || (gSoftResetDisabled == FALSE
+         && JOY_HELD_RAW(A_BUTTON)
+         && JOY_HELD_RAW(B_BUTTON)
+		 && JOY_HELD_RAW(R_BUTTON)))
         {
             rfu_REQ_stopMode();
             rfu_waitREQComplete();
             DoSoftReset();
         }
-
+		
+		now = RtcGetAbsoluteMinuteCount();
+		
+		if (FlagGet(0x037) && !FlagGet(0x038))
+		{
+			FlagSet(0x038);
+			LockTime = now + 60; // 1 hour
+		}
+		if (FlagGet(0x038) && now >= LockTime)
+		{
+			FlagClear(0x037);
+			FlagClear(0x038);
+		}
         if (Overworld_SendKeysToLinkIsRunning() == TRUE)
         {
             gLinkTransferringData = TRUE;
@@ -180,7 +198,7 @@ static void InitMainCallbacks(void)
     gTrainerHillVBlankCounter = NULL;
     gMain.vblankCounter2 = 0;
     gMain.callback1 = NULL;
-    SetMainCallback2(CB2_InitCopyrightScreenAfterBootup);
+	SetMainCallback2(CB2_InitCopyrightScreenAfterBootup);
     gSaveBlock2Ptr = &gSaveblock2.block;
     gPokemonStoragePtr = &gPokemonStorage.block;
 }
@@ -205,12 +223,63 @@ void StartTimer1(void)
     REG_TM1CNT_H = 0x80;
 }
 
+static u32 Mix32(u32 x)
+{
+    x ^= x >> 16;
+    x *= 0x7FEB352D;
+    x ^= x >> 15;
+    x *= 0x846CA68B;
+    x ^= x >> 16;
+    return x;
+}
+
 void SeedRngAndSetTrainerId(void)
 {
-    u16 val = REG_TM1CNT_L;
-    SeedRng(val);
-    REG_TM1CNT_H = 0;
-    sTrainerId = val;
+    struct SiiRtcInfo rtc;
+    u32 seed;
+    u32 base;
+    int i;
+
+    RtcGetRawInfo(&rtc);
+
+    // --------------------------------------------------
+    // 1. Build a deterministic base counter (NOT entropy yet)
+    // --------------------------------------------------
+    base =
+        (u32)rtc.second +
+        (u32)rtc.minute * 60 +
+        (u32)rtc.hour   * 3600 +
+        (u32)rtc.day    * 86400 +
+        (u32)rtc.month  * 2678400 +
+        (u32)rtc.year   * 32140800;
+
+    // --------------------------------------------------
+    // 2. Add hardware jitter (small entropy boost)
+    // --------------------------------------------------
+    base ^= REG_KEYINPUT;
+    base ^= REG_TM0CNT_L;
+    base ^= ((u32)REG_TM1CNT_L << 16);
+
+    // --------------------------------------------------
+    // 3. Expand into FULL 32-bit uniform space
+    // --------------------------------------------------
+    seed = Mix32(base);
+
+    // optional second avalanche pass (improves diffusion)
+    seed = Mix32(seed + 0x9E3779B9);
+
+    // --------------------------------------------------
+    // 4. Trainer ID (true full 32-bit derivation)
+    // --------------------------------------------------
+    sTrainerId = seed ^ (seed >> 16);
+
+    // --------------------------------------------------
+    // 5. Seed RNG
+    // --------------------------------------------------
+    SeedRng(seed);
+
+    for (i = 0; i < 16; i++)
+        Random();
 }
 
 u16 GetGeneratedTrainerIdLower(void)
@@ -226,14 +295,31 @@ void EnableVCountIntrAtLine150(void)
 }
 
 // FRLG commented this out to remove RTC, however Emerald didn't undo this!
-#ifdef BUGFIX
 static void SeedRngWithRtc(void)
 {
-    u32 seed = RtcGetMinuteCount();
-    seed = (seed >> 16) ^ (seed & 0xFFFF);
+    struct SiiRtcInfo rtc;
+    u32 base;
+    u32 seed;
+
+    RtcGetRawInfo(&rtc);
+
+    base =
+        (u32)rtc.second +
+        (u32)rtc.minute * 60 +
+        (u32)rtc.hour   * 3600 +
+        (u32)rtc.day    * 86400 +
+        (u32)rtc.month  * 2678400 +
+        (u32)rtc.year   * 32140800;
+
+    base ^= REG_KEYINPUT;
+    base ^= REG_TM0CNT_L;
+    base ^= ((u32)REG_TM1CNT_L << 16);
+
+    seed = Mix32(base);
+    seed = Mix32(seed + 0x9E3779B9);
+
     SeedRng(seed);
 }
-#endif
 
 void InitKeys(void)
 {
@@ -441,3 +527,4 @@ void ClearPokemonCrySongs(void)
 {
     CpuFill16(0, gPokemonCrySongs, MAX_POKEMON_CRIES * sizeof(struct PokemonCrySong));
 }
+

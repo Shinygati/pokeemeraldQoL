@@ -2053,7 +2053,7 @@ BattleScript_EffectFakeOut::
 
 BattleScript_FailedFromAtkString::
 	attackstring
-BattleScript_FailedFromPPReduce::
+BattleScript_FailedFromPpReduce::
 	ppreduce
 BattleScript_ButItFailed::
 	pause B_WAIT_TIME_SHORT
@@ -2367,7 +2367,7 @@ BattleScript_EffectWish::
 BattleScript_EffectAssist::
 	attackcanceler
 	attackstring
-	assistattackselect BattleScript_FailedFromPPReduce
+	assistattackselect BattleScript_FailedFromPpReduce
 	attackanimation
 	waitanimation
 	setbyte sB_ANIM_TURN, 0
@@ -2521,7 +2521,7 @@ BattleScript_EffectRefresh::
 	attackcanceler
 	attackstring
 	ppreduce
-	cureifburnedparalyzedorpoisoned BattleScript_ButItFailed
+	cureifburnedparalysedorpoisoned BattleScript_ButItFailed
 	attackanimation
 	waitanimation
 	printstring STRINGID_PKMNSTATUSNORMAL
@@ -3659,7 +3659,7 @@ BattleScript_SelectingImprisonedMoveInPalace::
 	printstring STRINGID_PKMNCANTUSEMOVESEALED
 	goto BattleScript_SelectingUnusableMoveInPalace
 
-BattleScript_GrudgeTakesPP::
+BattleScript_GrudgeTakesPp::
 	printstring STRINGID_PKMNLOSTPPGRUDGE
 	waitmessage B_WAIT_TIME_LONG
 	return

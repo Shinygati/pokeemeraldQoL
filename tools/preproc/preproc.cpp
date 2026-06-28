@@ -98,20 +98,6 @@ void PreprocAsmFile(std::string filename, bool isStdin, bool doEnum)
                 stack.top().OutputLine();
             break;
         }
-        case Directive::Macro:
-        {
-            // GNU as misreports the filename (but not line!) when an
-            // error occurs in a macro, so we work around this bug by
-            // emitting an explicit location inside the macro
-            // definition.
-            // ... but only on the first pass, because on the second
-            // pass we have lost track of our location.
-            if (!isStdin)
-            {
-                stack.top().OutputLine();
-                stack.top().OutputLocation();
-            }
-        }
         case Directive::Unknown:
         {
             std::string globalLabel = stack.top().GetGlobalLabel();
@@ -132,9 +118,9 @@ void PreprocAsmFile(std::string filename, bool isStdin, bool doEnum)
     }
 }
 
-void PreprocCFile(const char * filename, bool isStdin, const char * graphicsRoot)
+void PreprocCFile(const char * filename, bool isStdin)
 {
-    CFile cFile(filename, isStdin, graphicsRoot);
+    CFile cFile(filename, isStdin);
     cFile.Preproc();
 }
 
@@ -161,7 +147,7 @@ const char* GetFileExtension(const char* filename)
 
 static void UsageAndExit(const char *program)
 {
-    std::fprintf(stderr, "Usage: %s [-i] [-e] [-g PATH] SRC_FILE CHARMAP_FILE\nwhere -i denotes if input is from stdin\n      -e enables enum handling\n-g specifies the root for INCGFX\n", program);
+    std::fprintf(stderr, "Usage: %s [-i] [-e] SRC_FILE CHARMAP_FILE\nwhere -i denotes if input is from stdin\n      -e enables enum handling\n", program);
     std::exit(EXIT_FAILURE);
 }
 
@@ -172,10 +158,9 @@ int main(int argc, char **argv)
     const char *charmap = NULL;
     bool isStdin = false;
     bool doEnum = false;
-    const char *graphicsRoot = "";
 
-    /* preproc [-i] [-e] [-g PATH] SRC_FILE CHARMAP_FILE */
-    while ((opt = getopt(argc, argv, "ieg:")) != -1)
+    /* preproc [-i] [-e] SRC_FILE CHARMAP_FILE */
+    while ((opt = getopt(argc, argv, "ie")) != -1)
     {
         switch (opt)
         {
@@ -184,9 +169,6 @@ int main(int argc, char **argv)
             break;
         case 'e':
             doEnum = true;
-            break;
-        case 'g':
-            graphicsRoot = optarg;
             break;
         default:
             UsageAndExit(argv[0]);
@@ -220,7 +202,7 @@ int main(int argc, char **argv)
     {
         if (doEnum)
             FATAL_ERROR("-e is invalid for C sources\n");
-        PreprocCFile(source, isStdin, graphicsRoot);
+        PreprocCFile(source, isStdin);
     }
     else
     {

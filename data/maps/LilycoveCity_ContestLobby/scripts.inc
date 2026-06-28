@@ -349,7 +349,7 @@ LilycoveCity_ContestLobby_EventScript_SetMasterContestType::
 @ Functionally unused
 LilycoveCity_ContestLobby_EventScript_SetDebug::
 	setflag FLAG_HIDE_LILYCOVE_MUSEUM_CURATOR
-#ifdef UBFIX
+#if UBFIX
 	setvar VAR_LILYCOVE_MUSEUM_2F_STATE, 1
 #else
 	copyvar VAR_LILYCOVE_MUSEUM_2F_STATE, 1, warn=FALSE
@@ -374,26 +374,31 @@ LilycoveCity_ContestLobby_EventScript_WarpToContestHall::
 LilycoveCity_ContestLobby_EventScript_WarpToCoolContestHall::
 	setwarp MAP_CONTEST_HALL_COOL, 7, 5
 	special DoContestHallWarp
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_WarpToBeautyContestHall::
 	setwarp MAP_CONTEST_HALL_BEAUTY, 7, 5
 	special DoContestHallWarp
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_WarpToCuteContestHall::
 	setwarp MAP_CONTEST_HALL_CUTE, 7, 5
 	special DoContestHallWarp
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_WarpToSmartContestHall::
 	setwarp MAP_CONTEST_HALL_SMART, 7, 5
 	special DoContestHallWarp
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_WarpToToughContestHall::
 	setwarp MAP_CONTEST_HALL_TOUGH, 7, 5
 	special DoContestHallWarp
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_LeadToContestHall::
@@ -757,10 +762,12 @@ LilycoveCity_ContestLobby_EventScript_TrySetUpLinkContest::
 
 LilycoveCity_ContestLobby_EventScript_TryLinkEMode::
 	special TryContestEModeLinkup
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_TryLinkGMode::
 	special TryContestGModeLinkup
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_CancelLinkDifferentContest::
@@ -868,10 +875,12 @@ LilycoveCity_ContestLobby_EventScript_TryJoinGroup::
 
 LilycoveCity_ContestLobby_EventScript_TryBecomeLinkLeader::
 	special TryBecomeLinkLeader
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_TryJoinLinkGroup::
 	special TryJoinLinkGroup
+	waitstate
 	return
 
 LilycoveCity_ContestLobby_EventScript_LinkLeaderDecided::

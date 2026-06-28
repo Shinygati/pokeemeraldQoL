@@ -60,6 +60,7 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "cable_club.h"
+#include "wild_encounter.h"
 
 extern const struct BgTemplate gBattleBgTemplates[];
 extern const struct WindowTemplate *const gBattleWindowTemplates[];
@@ -4207,8 +4208,8 @@ static void HandleTurnActionSelectionState(void)
                         for (i = 0; i < MAX_MON_MOVES; i++)
                         {
                             moveInfo.moves[i] = gBattleMons[gActiveBattler].moves[i];
-                            moveInfo.currentPP[i] = gBattleMons[gActiveBattler].pp[i];
-                            moveInfo.maxPP[i] = CalculatePPWithBonus(
+                            moveInfo.currentPp[i] = gBattleMons[gActiveBattler].pp[i];
+                            moveInfo.maxPp[i] = CalculatePPWithBonus(
                                                             gBattleMons[gActiveBattler].moves[i],
                                                             gBattleMons[gActiveBattler].ppBonuses,
                                                             i);
@@ -4960,6 +4961,7 @@ static void RunTurnActionsFunctions(void)
 static void HandleEndTurn_BattleWon(void)
 {
     gCurrentActionFuncId = 0;
+	gSoftResetDisabled = FALSE;
 
     if (gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_RECORDED_LINK))
     {
@@ -5018,6 +5020,7 @@ static void HandleEndTurn_BattleWon(void)
 static void HandleEndTurn_BattleLost(void)
 {
     gCurrentActionFuncId = 0;
+	gSoftResetDisabled = FALSE;
 
     if (gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_RECORDED_LINK))
     {
@@ -5054,6 +5057,7 @@ static void HandleEndTurn_BattleLost(void)
 static void HandleEndTurn_RanFromBattle(void)
 {
     gCurrentActionFuncId = 0;
+	gSoftResetDisabled = FALSE;
 
     if (gBattleTypeFlags & BATTLE_TYPE_FRONTIER && gBattleTypeFlags & BATTLE_TYPE_TRAINER)
     {
@@ -5088,6 +5092,7 @@ static void HandleEndTurn_RanFromBattle(void)
 static void HandleEndTurn_MonFled(void)
 {
     gCurrentActionFuncId = 0;
+	gSoftResetDisabled = FALSE;
 
     PREPARE_MON_NICK_BUFFER(gBattleTextBuff1, gBattlerAttacker, gBattlerPartyIndexes[gBattlerAttacker]);
     gBattlescriptCurrInstr = BattleScript_WildMonFled;
@@ -5097,6 +5102,7 @@ static void HandleEndTurn_MonFled(void)
 
 static void HandleEndTurn_FinishBattle(void)
 {
+	gSoftResetDisabled = FALSE;
     if (gCurrentActionFuncId == B_ACTION_TRY_FINISH || gCurrentActionFuncId == B_ACTION_FINISHED)
     {
         if (!(gBattleTypeFlags & (BATTLE_TYPE_LINK
@@ -5234,13 +5240,10 @@ static void ReturnFromBattleToOverworld(void)
         UpdateRoamerHPStatus(&gEnemyParty[0]);
 
 #ifndef BUGFIX
-        // Bug: When Roar is used by a roamer, gBattleOutcome is B_OUTCOME_PLAYER_TELEPORTED (5),
-        // which deactivates the roamer.
         if ((gBattleOutcome & B_OUTCOME_WON) || gBattleOutcome == B_OUTCOME_CAUGHT)
 #else
-        if ((gBattleOutcome == B_OUTCOME_WON) || gBattleOutcome == B_OUTCOME_CAUGHT ||
-            gBattleOutcome == B_OUTCOME_DREW)
-#endif
+        if ((gBattleOutcome == B_OUTCOME_WON) || gBattleOutcome == B_OUTCOME_CAUGHT) // Bug: When Roar is used by roamer, gBattleOutcome is B_OUTCOME_PLAYER_TELEPORTED (5).
+#endif                                                                               // & with B_OUTCOME_WON (1) will return TRUE and deactivates the roamer.
             SetRoamerInactive();
     }
 

@@ -267,11 +267,7 @@ static const u8 sRSAvatarGfxIds[GENDER_COUNT] =
     [FEMALE] = OBJ_EVENT_GFX_LINK_RS_MAY
 };
 
-static const struct __attribute__((packed))
-{
-    u8 graphicsId;
-    u8 playerFlag;
-} sPlayerAvatarGfxToStateFlag[GENDER_COUNT][5] =
+static const u8 sPlayerAvatarGfxToStateFlag[GENDER_COUNT][5][2] =
 {
     [MALE] =
     {
@@ -729,8 +725,8 @@ static u8 CheckForObjectEventStaticCollision(struct ObjectEvent *objectEvent, s1
 static bool8 CanStopSurfing(s16 x, s16 y, u8 direction)
 {
     if ((gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_SURFING)
-     && MapGridGetElevationAt(x, y) == ELEVATION_DEFAULT
-     && GetObjectEventIdByPosition(x, y, ELEVATION_DEFAULT) == OBJECT_EVENTS_COUNT)
+     && MapGridGetElevationAt(x, y) == 3
+     && GetObjectEventIdByPosition(x, y, 3) == OBJECT_EVENTS_COUNT)
     {
         CreateStopSurfingTask(direction);
         return TRUE;
@@ -1327,7 +1323,7 @@ bool8 IsPlayerFacingSurfableFishableWater(void)
 
     MoveCoords(playerObjEvent->facingDirection, &x, &y);
     if (GetCollisionAtCoords(playerObjEvent, x, y, playerObjEvent->facingDirection) == COLLISION_ELEVATION_MISMATCH
-     && PlayerGetElevation() == ELEVATION_DEFAULT
+     && PlayerGetElevation() == 3
      && MetatileBehavior_IsSurfableFishableWater(MapGridGetMetatileBehaviorAt(x, y)))
         return TRUE;
     else
@@ -1351,8 +1347,8 @@ static u8 GetPlayerAvatarStateTransitionByGraphicsId(u8 graphicsId, u8 gender)
 
     for (i = 0; i < ARRAY_COUNT(sPlayerAvatarGfxToStateFlag[0]); i++)
     {
-        if (sPlayerAvatarGfxToStateFlag[gender][i].graphicsId == graphicsId)
-            return sPlayerAvatarGfxToStateFlag[gender][i].playerFlag;
+        if (sPlayerAvatarGfxToStateFlag[gender][i][0] == graphicsId)
+            return sPlayerAvatarGfxToStateFlag[gender][i][1];
     }
     return PLAYER_AVATAR_FLAG_ON_FOOT;
 }
@@ -1364,8 +1360,8 @@ u8 GetPlayerAvatarGraphicsIdByCurrentState(void)
 
     for (i = 0; i < ARRAY_COUNT(sPlayerAvatarGfxToStateFlag[0]); i++)
     {
-        if (sPlayerAvatarGfxToStateFlag[gPlayerAvatar.gender][i].playerFlag & flags)
-            return sPlayerAvatarGfxToStateFlag[gPlayerAvatar.gender][i].graphicsId;
+        if (sPlayerAvatarGfxToStateFlag[gPlayerAvatar.gender][i][1] & flags)
+            return sPlayerAvatarGfxToStateFlag[gPlayerAvatar.gender][i][0];
     }
     return 0;
 }
@@ -1388,7 +1384,7 @@ void InitPlayerAvatar(s16 x, s16 y, u8 direction, u8 gender)
     playerObjEventTemplate.graphicsId = GetPlayerAvatarGraphicsIdByStateIdAndGender(PLAYER_AVATAR_STATE_NORMAL, gender);
     playerObjEventTemplate.x = x - MAP_OFFSET;
     playerObjEventTemplate.y = y - MAP_OFFSET;
-    playerObjEventTemplate.elevation = ELEVATION_TRANSITION;
+    playerObjEventTemplate.elevation = 0;
     playerObjEventTemplate.movementType = MOVEMENT_TYPE_PLAYER;
     playerObjEventTemplate.movementRangeX = 0;
     playerObjEventTemplate.movementRangeY = 0;
@@ -1813,10 +1809,8 @@ static bool8 Fishing_ShowDots(struct Task *task)
     task->tFrameCounter++;
     if (JOY_NEW(A_BUTTON))
     {
-        task->tStep = FISHING_NO_BITE;
-        if (task->tRoundsPlayed != 0)
-            task->tStep = FISHING_GOT_AWAY;
-        return TRUE;
+        task->tStep = FISHING_GOT_BITE;
+        return FALSE;
     }
     else
     {
@@ -1825,7 +1819,7 @@ static bool8 Fishing_ShowDots(struct Task *task)
             task->tFrameCounter = 0;
             if (task->tNumDots >= task->tDotsRequired)
             {
-                task->tStep++;
+                task->tStep = FISHING_GOT_BITE;
                 if (task->tRoundsPlayed != 0)
                     task->tStep++;
                 task->tRoundsPlayed++;
@@ -1898,9 +1892,7 @@ static bool8 Fishing_WaitForA(struct Task *task)
 
     AlignFishingAnimationFrames();
     task->tFrameCounter++;
-    if (task->tFrameCounter >= reelTimeouts[task->tFishingRod])
-        task->tStep = FISHING_GOT_AWAY;
-    else if (JOY_NEW(A_BUTTON))
+    if (JOY_NEW(A_BUTTON))
         task->tStep++;
     return FALSE;
 }
@@ -1917,18 +1909,6 @@ static bool8 Fishing_CheckMoreDots(struct Task *task)
 
     AlignFishingAnimationFrames();
     task->tStep++;
-    if (task->tRoundsPlayed < task->tMinRoundsRequired)
-    {
-        task->tStep = FISHING_START_ROUND;
-    }
-    else if (task->tRoundsPlayed < 2)
-    {
-        // probability of having to play another round
-        s16 probability = Random() % 100;
-
-        if (moreDotsChance[task->tFishingRod][task->tRoundsPlayed] > probability)
-            task->tStep = FISHING_START_ROUND;
-    }
     return FALSE;
 }
 

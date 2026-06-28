@@ -1276,7 +1276,7 @@ const u8 gText_BattleMenu[] = _("FIGHT{CLEAR_TO 56}BAG\nPOKéMON{CLEAR_TO 56}RUN
 const u8 gText_SafariZoneMenu[] = _("BALL{CLEAR_TO 56}{POKEBLOCK}\nGO NEAR{CLEAR_TO 56}RUN");
 const u8 gText_MoveInterfacePP[] = _("PP ");
 const u8 gText_MoveInterfaceType[] = _("TYPE/");
-const u8 gText_MoveInterfacePPType[] = _("{PALETTE 5}{COLOR_HIGHLIGHT_SHADOW DYNAMIC_COLOR4 DYNAMIC_COLOR5 DYNAMIC_COLOR6}PP\nTYPE/");
+const u8 gText_MoveInterfacePpType[] = _("{PALETTE 5}{COLOR_HIGHLIGHT_SHADOW DYNAMIC_COLOR4 DYNAMIC_COLOR5 DYNAMIC_COLOR6}PP\nTYPE/");
 const u8 gText_MoveInterfaceDynamicColors[] = _("{PALETTE 5}{COLOR_HIGHLIGHT_SHADOW DYNAMIC_COLOR4 DYNAMIC_COLOR5 DYNAMIC_COLOR6}");
 const u8 gText_WhichMoveToForget4[] = _("{PALETTE 5}{COLOR_HIGHLIGHT_SHADOW DYNAMIC_COLOR4 DYNAMIC_COLOR5 DYNAMIC_COLOR6}Which move should\nbe forgotten?");
 const u8 gText_BattleYesNoChoice[] = _("{PALETTE 5}{COLOR_HIGHLIGHT_SHADOW DYNAMIC_COLOR4 DYNAMIC_COLOR5 DYNAMIC_COLOR6}Yes\nNo");
@@ -1557,7 +1557,7 @@ static const struct BattleWindowText sTextOnWindowsInfo_Normal[] =
         .bgColor = 14,
         .shadowColor = 11,
     },
-    [B_WIN_DUMMY] = {
+    [B_WIN_PSS_ICON] = {
         .fillValue = PIXEL_FILL(0xE),
         .fontId = FONT_NORMAL,
         .x = 0,
@@ -1797,7 +1797,7 @@ static const struct BattleWindowText sTextOnWindowsInfo_Arena[] =
         .bgColor = 14,
         .shadowColor = 11,
     },
-    [B_WIN_DUMMY] = {
+    [B_WIN_PSS_ICON] = {
         .fillValue = PIXEL_FILL(0xE),
         .fontId = FONT_NORMAL,
         .x = 0,
@@ -2250,7 +2250,7 @@ void BufferStringBattle(u16 stringID)
 
 u32 BattleStringExpandPlaceholdersToDisplayedString(const u8 *src)
 {
-    return BattleStringExpandPlaceholders(src, gDisplayedStringBattle);
+    BattleStringExpandPlaceholders(src, gDisplayedStringBattle);
 }
 
 static const u8 *TryGetStatusString(u8 *src)
@@ -3030,12 +3030,12 @@ void BattlePutTextOnWindow(const u8 *text, u8 windowId)
     }
 }
 
-void SetPPNumbersPaletteInMoveSelection(void)
+void SetPpNumbersPaletteInMoveSelection(void)
 {
     struct ChooseMoveStruct *chooseMoveStruct = (struct ChooseMoveStruct *)(&gBattleBufferA[gActiveBattler][4]);
     const u16 *palPtr = gPPTextPalette;
-    u8 var = GetCurrentPPToMaxPPState(chooseMoveStruct->currentPP[gMoveSelectionCursor[gActiveBattler]],
-                         chooseMoveStruct->maxPP[gMoveSelectionCursor[gActiveBattler]]);
+    u8 var = GetCurrentPpToMaxPpState(chooseMoveStruct->currentPp[gMoveSelectionCursor[gActiveBattler]],
+                         chooseMoveStruct->maxPp[gMoveSelectionCursor[gActiveBattler]]);
 
     gPlttBufferUnfaded[BG_PLTT_ID(5) + 12] = palPtr[(var * 2) + 0];
     gPlttBufferUnfaded[BG_PLTT_ID(5) + 11] = palPtr[(var * 2) + 1];
@@ -3044,33 +3044,33 @@ void SetPPNumbersPaletteInMoveSelection(void)
     CpuCopy16(&gPlttBufferUnfaded[BG_PLTT_ID(5) + 11], &gPlttBufferFaded[BG_PLTT_ID(5) + 11], PLTT_SIZEOF(1));
 }
 
-u8 GetCurrentPPToMaxPPState(u8 currentPP, u8 maxPP)
+u8 GetCurrentPpToMaxPpState(u8 currentPp, u8 maxPp)
 {
-    if (maxPP == currentPP)
+    if (maxPp == currentPp)
     {
         return 3;
     }
-    else if (maxPP <= 2)
+    else if (maxPp <= 2)
     {
-        if (currentPP > 1)
+        if (currentPp > 1)
             return 3;
         else
-            return 2 - currentPP;
+            return 2 - currentPp;
     }
-    else if (maxPP <= 7)
+    else if (maxPp <= 7)
     {
-        if (currentPP > 2)
+        if (currentPp > 2)
             return 3;
         else
-            return 2 - currentPP;
+            return 2 - currentPp;
     }
     else
     {
-        if (currentPP == 0)
+        if (currentPp == 0)
             return 2;
-        if (currentPP <= maxPP / 4)
+        if (currentPp <= maxPp / 4)
             return 1;
-        if (currentPP > maxPP / 2)
+        if (currentPp > maxPp / 2)
             return 3;
     }
 

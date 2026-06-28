@@ -26,7 +26,7 @@ void ResetLotteryCorner(void)
     u16 rand = Random();
 
     SetLotteryNumber((Random() << 16) | rand);
-    VarSet(VAR_POKELOT_PRIZE_ITEM, ITEM_NONE);
+    VarSet(VAR_POKELOT_PRIZE_ITEM, 0);
 }
 
 void SetRandomLotteryNumber(u16 i)

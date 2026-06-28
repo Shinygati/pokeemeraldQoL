@@ -82,9 +82,9 @@ static void CreateEggShardSprite(u8, u8, s16, s16, s16, u8);
 
 static struct EggHatchData *sEggHatchData;
 
-static const u16 sEggPalette[]  = INCGFX_U16("graphics/pokemon/egg/normal.pal", ".gbapal");
-static const u8 sEggHatchTiles[] = INCGFX_U8("graphics/pokemon/egg/hatch.png", ".4bpp");
-static const u8 sEggShardTiles[] = INCGFX_U8("graphics/pokemon/egg/shard.png", ".4bpp");
+static const u16 sEggPalette[]  = INCBIN_U16("graphics/pokemon/egg/normal.gbapal");
+static const u8 sEggHatchTiles[] = INCBIN_U8("graphics/pokemon/egg/hatch.4bpp");
+static const u8 sEggShardTiles[] = INCBIN_U8("graphics/pokemon/egg/shard.4bpp");
 
 static const struct OamData sOamData_Egg =
 {
@@ -799,11 +799,8 @@ static void SpriteCB_Egg_Shake3(struct Sprite *sprite)
                 // This ineffectually sets the animation to the frame it's already using.
                 // They likely meant to use the 3rd and final cracked frame of the egg, which goes unused as a result.
                 PlaySE(SE_BALL);
-            #ifdef BUGFIX
                 StartSpriteAnim(sprite, EGG_ANIM_CRACKED_3);
-            #else
                 StartSpriteAnim(sprite, EGG_ANIM_CRACKED_2);
-            #endif
                 CreateRandomEggShardSprite();
                 CreateRandomEggShardSprite();
             }

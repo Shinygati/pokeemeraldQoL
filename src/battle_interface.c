@@ -61,7 +61,7 @@ enum
     HEALTHBOX_GFX_20, //exp bar [8 pixels]
     HEALTHBOX_GFX_STATUS_PSN_BATTLER0,  //status psn "(P"
     HEALTHBOX_GFX_22,                   //status psn "SN"
-    HEALTHBOX_GFX_23,                   //status psn "|)"
+    HEALTHBOX_GFX_23,                   //status psn "|)""
     HEALTHBOX_GFX_STATUS_PRZ_BATTLER0,  //status prz
     HEALTHBOX_GFX_25,
     HEALTHBOX_GFX_26,
@@ -635,7 +635,7 @@ static const struct SubspriteTable sStatusSummaryBar_SubspriteTable_Exit[] =
 };
 
 // unused unknown image
-static const u8 sUnusedStatusSummary[] = INCGFX_U8("graphics/battle_interface/unused_status_summary.png", ".4bpp");
+static const u8 sUnusedStatusSummary[] = INCBIN_U8("graphics/battle_interface/unused_status_summary.4bpp");
 
 static const struct CompressedSpriteSheet sStatusSummaryBarSpriteSheet =
 {
@@ -2245,7 +2245,7 @@ s32 MoveBattleBar(u8 battler, u8 healthboxSpriteId, u8 whichBar, u8 unused)
                     gBattleSpritesDataPtr->battleBars[battler].oldValue,
                     gBattleSpritesDataPtr->battleBars[battler].receivedValue,
                     &gBattleSpritesDataPtr->battleBars[battler].currValue,
-                    B_HEALTHBAR_PIXELS / 8, 1);
+                    B_HEALTHBAR_PIXELS / 8, max(gBattleSpritesDataPtr->battleBars[battler].maxValue / 32, 1));
     }
     else // exp bar
     {

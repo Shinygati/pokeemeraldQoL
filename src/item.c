@@ -15,6 +15,8 @@
 #include "constants/items.h"
 #include "constants/hold_effects.h"
 
+void ItemId_GetHoldEffectParam_Script();
+
 static bool8 CheckPyramidBagHasItem(u16 itemId, u16 count);
 static bool8 CheckPyramidBagHasSpace(u16 itemId, u16 count);
 
@@ -51,6 +53,11 @@ void ApplyNewEncryptionKeyToBagItems(u32 newKey)
         for (item = 0; item < gBagPockets[pocket].capacity; item++)
             ApplyNewEncryptionKeyToHword(&(gBagPockets[pocket].itemSlots[item].quantity), newKey);
     }
+}
+
+void ItemId_GetHoldEffectParam_Script(void)
+{
+    VarSet(VAR_RESULT, GetItemHoldEffectParam(VarGet(VAR_0x8004)));
 }
 
 void ApplyNewEncryptionKeyToBagItems_(u32 newKey) // really GF?
@@ -632,29 +639,30 @@ void SortBerriesOrTMHMs(struct BagPocket *bagPocket)
     }
 }
 
-void MoveItemSlotInList(struct ItemSlot *itemSlots, u32 from, u32 to)
+void MoveItemSlotInList(struct ItemSlot *itemSlots_, u32 from, u32 to_)
 {
-    struct ItemSlot firstSlot;
-    s16 i;
+    // dumb assignments needed to match
+    struct ItemSlot *itemSlots = itemSlots_;
+    u32 to = to_;
 
-    if (from == to)
-        return;
-
-    firstSlot = itemSlots[from];
-
-    if (to > from)
+    if (from != to)
     {
-        to--;
-        for (i = (s16)from; i < (s16)to; i++)
-            itemSlots[i] = itemSlots[i + 1];
+        s16 i, count;
+        struct ItemSlot firstSlot = itemSlots[from];
+
+        if (to > from)
+        {
+            to--;
+            for (i = from, count = to; i < count; i++)
+                itemSlots[i] = itemSlots[i + 1];
+        }
+        else
+        {
+            for (i = from, count = to; i > count; i--)
+                itemSlots[i] = itemSlots[i - 1];
+        }
+        itemSlots[to] = firstSlot;
     }
-    else
-    {
-        for (i = (s16)from; i > (s16)to; i--)
-            itemSlots[i] = itemSlots[i - 1];
-    }
-    
-    itemSlots[to] = firstSlot;
 }
 
 void ClearBag(void)

@@ -47,6 +47,8 @@
 #include "constants/songs.h"
 #include "constants/trainers.h"
 #include "constants/union_room.h"
+#include "wild_encounter.h"
+#include "roamer.h"
 
 #define DAY_EVO_HOUR_BEGIN       12
 #define DAY_EVO_HOUR_END         HOURS_PER_DAY
@@ -55,6 +57,10 @@
 #define NIGHT_EVO_HOUR_END       12
 
 #define FRIENDSHIP_EVO_THRESHOLD 220
+
+#define FLAG_STARTER_SHINY_0 0x40
+#define FLAG_STARTER_SHINY_1 0x41
+#define FLAG_STARTER_SHINY_2 0x42
 
 struct SpeciesItem
 {
@@ -71,6 +77,10 @@ static bool8 ShouldGetStatBadgeBoost(u16 flagId, u8 battler);
 static u16 GiveMoveToBoxMon(struct BoxPokemon *boxMon, u16 move);
 static bool8 ShouldSkipFriendshipChange(void);
 static u8 CopyMonToPC(struct Pokemon *mon);
+static u32 LatiosIVs;
+static u32 CustomFixedIV;
+static u32 ivValue1;
+static u32 ivValue2;
 
 EWRAM_DATA static u8 sLearningMoveTableID = 0;
 EWRAM_DATA u8 gPlayerPartyCount = 0;
@@ -79,6 +89,49 @@ EWRAM_DATA struct Pokemon gPlayerParty[PARTY_SIZE] = {0};
 EWRAM_DATA struct Pokemon gEnemyParty[PARTY_SIZE] = {0};
 EWRAM_DATA struct SpriteTemplate gMultiuseSpriteTemplate = {0};
 EWRAM_DATA static struct MonSpritesGfxManager *sMonSpritesGfxManagers[MON_SPR_GFX_MANAGERS_COUNT] = {NULL};
+
+#define ROAMER (&gSaveBlock1Ptr->roamer)
+EWRAM_DATA static u8 sLocationHistory[3][2] = {0};
+EWRAM_DATA static u8 sRoamerLocation[2] = {0};
+
+#define ___ MAP_NUM(MAP_UNDEFINED) // For empty spots in the location table
+
+// Note: There are two potential softlocks that can occur with this table if its maps are
+//       changed in particular ways. They can be avoided by ensuring the following:
+//       - There must be at least 2 location sets that start with a different map,
+//         i.e. every location set cannot start with the same map. This is because of
+//         the while loop in RoamerMoveToOtherLocationSet.
+//       - Each location set must have at least 3 unique maps. This is because of
+//         the while loop in RoamerMove. In this loop the first map in the set is
+//         ignored, and an additional map is ignored if the roamer was there recently.
+//       - Additionally, while not a softlock, it's worth noting that if for any
+//         map in the location table there is not a location set that starts with
+//         that map then the roamer will be significantly less likely to move away
+//         from that map when it lands there.
+static const u8 sRoamerLocations[][6] =
+{
+    { MAP_NUM(MAP_ROUTE110), MAP_NUM(MAP_ROUTE111), MAP_NUM(MAP_ROUTE117), MAP_NUM(MAP_ROUTE118), MAP_NUM(MAP_ROUTE134), ___ },
+    { MAP_NUM(MAP_ROUTE111), MAP_NUM(MAP_ROUTE110), MAP_NUM(MAP_ROUTE117), MAP_NUM(MAP_ROUTE118), ___, ___ },
+    { MAP_NUM(MAP_ROUTE117), MAP_NUM(MAP_ROUTE111), MAP_NUM(MAP_ROUTE110), MAP_NUM(MAP_ROUTE118), ___, ___ },
+    { MAP_NUM(MAP_ROUTE118), MAP_NUM(MAP_ROUTE117), MAP_NUM(MAP_ROUTE110), MAP_NUM(MAP_ROUTE111), MAP_NUM(MAP_ROUTE119), MAP_NUM(MAP_ROUTE123) },
+    { MAP_NUM(MAP_ROUTE119), MAP_NUM(MAP_ROUTE118), MAP_NUM(MAP_ROUTE120), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE120), MAP_NUM(MAP_ROUTE119), MAP_NUM(MAP_ROUTE121), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE121), MAP_NUM(MAP_ROUTE120), MAP_NUM(MAP_ROUTE122), MAP_NUM(MAP_ROUTE123), ___, ___ },
+    { MAP_NUM(MAP_ROUTE122), MAP_NUM(MAP_ROUTE121), MAP_NUM(MAP_ROUTE123), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE123), MAP_NUM(MAP_ROUTE122), MAP_NUM(MAP_ROUTE118), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE124), MAP_NUM(MAP_ROUTE121), MAP_NUM(MAP_ROUTE125), MAP_NUM(MAP_ROUTE126), ___, ___ },
+    { MAP_NUM(MAP_ROUTE125), MAP_NUM(MAP_ROUTE124), MAP_NUM(MAP_ROUTE127), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE126), MAP_NUM(MAP_ROUTE124), MAP_NUM(MAP_ROUTE127), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE127), MAP_NUM(MAP_ROUTE125), MAP_NUM(MAP_ROUTE126), MAP_NUM(MAP_ROUTE128), ___, ___ },
+    { MAP_NUM(MAP_ROUTE128), MAP_NUM(MAP_ROUTE127), MAP_NUM(MAP_ROUTE129), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE129), MAP_NUM(MAP_ROUTE128), MAP_NUM(MAP_ROUTE130), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE130), MAP_NUM(MAP_ROUTE129), MAP_NUM(MAP_ROUTE131), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE131), MAP_NUM(MAP_ROUTE130), MAP_NUM(MAP_ROUTE132), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE132), MAP_NUM(MAP_ROUTE131), MAP_NUM(MAP_ROUTE133), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE133), MAP_NUM(MAP_ROUTE132), MAP_NUM(MAP_ROUTE134), ___, ___, ___ },
+    { MAP_NUM(MAP_ROUTE134), MAP_NUM(MAP_ROUTE133), MAP_NUM(MAP_ROUTE110), ___, ___, ___ },
+    { ___, ___, ___, ___, ___, ___ },
+};
 
 #include "data/battle_moves.h"
 
@@ -1354,10 +1407,10 @@ static const u16 sHoennToNationalOrder[NUM_SPECIES - 1] =
 
 const struct SpindaSpot gSpindaSpotGraphics[] =
 {
-    {.x = 16, .y =  7, .image = INCGFX_U16("graphics/pokemon/spinda/spots/spot_0.png", ".1bpp", "-plain -data_width 2")},
-    {.x = 40, .y =  8, .image = INCGFX_U16("graphics/pokemon/spinda/spots/spot_1.png", ".1bpp", "-plain -data_width 2")},
-    {.x = 22, .y = 25, .image = INCGFX_U16("graphics/pokemon/spinda/spots/spot_2.png", ".1bpp", "-plain -data_width 2")},
-    {.x = 34, .y = 26, .image = INCGFX_U16("graphics/pokemon/spinda/spots/spot_3.png", ".1bpp", "-plain -data_width 2")}
+    {.x = 16, .y =  7, .image = INCBIN_U16("graphics/pokemon/spinda/spots/spot_0.1bpp")},
+    {.x = 40, .y =  8, .image = INCBIN_U16("graphics/pokemon/spinda/spots/spot_1.1bpp")},
+    {.x = 22, .y = 25, .image = INCBIN_U16("graphics/pokemon/spinda/spots/spot_2.1bpp")},
+    {.x = 34, .y = 26, .image = INCBIN_U16("graphics/pokemon/spinda/spots/spot_3.1bpp")}
 };
 
 #include "data/pokemon/item_effects.h"
@@ -2192,6 +2245,125 @@ void ZeroEnemyPartyMons(void)
         ZeroMonData(&gEnemyParty[i]);
 }
 
+bool8 IsPokedexComplete(void)
+{
+    u16 i;
+
+    for (i = 1; i < NATIONAL_DEX_COUNT + 1; i++)
+    {
+        // Skip mythicals / legendaries
+        if (i == NATIONAL_DEX_MEW
+		 || i == NATIONAL_DEX_CELEBI
+         || i == NATIONAL_DEX_JIRACHI
+         || i == NATIONAL_DEX_DEOXYS
+         || i == NATIONAL_DEX_HO_OH
+         || i == NATIONAL_DEX_LUGIA
+
+         )
+            continue;
+
+        if (!GetSetPokedexFlag(i, FLAG_GET_CAUGHT))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+static u32 GetTrainerShinyValue(void)
+{
+	u32 tid;
+	
+	tid =
+    gSaveBlock2Ptr->playerTrainerId[0]
+  | (gSaveBlock2Ptr->playerTrainerId[1] << 8)
+  | (gSaveBlock2Ptr->playerTrainerId[2] << 16)
+  | (gSaveBlock2Ptr->playerTrainerId[3] << 24);
+  
+  return tid;
+  
+}
+
+static u32 RollShinyPersonalityChance(u8 targetNature, u8 ForceShiny)
+{
+    u32 personality;
+    u32 value;
+    u32 BoostedShinyValue;
+	u8 IsShiny = FALSE;
+	u32 Tmp_RNG;
+	u8 PIDNature;
+	u32 AdditionalShinyValue = 0;
+	
+	Tmp_RNG = gRngValue;
+	
+	if (FlagGet(0x037))
+	{
+		if (IsPokedexComplete())
+		{
+			AdditionalShinyValue = 682;
+		}
+		else
+		{
+			AdditionalShinyValue = 1000;
+		}
+	}
+	
+	if (!GetMonData(&gPlayerParty[0], MON_DATA_SANITY_IS_EGG)
+        && GetMonAbility(&gPlayerParty[0]) == ABILITY_SYNCHRONIZE)
+	{
+        PIDNature = GetMonData(&gPlayerParty[0], MON_DATA_PERSONALITY) % NUM_NATURES;
+    }
+	else
+	{
+		PIDNature = targetNature;
+    }
+    if (IsPokedexComplete())
+    {
+        BoostedShinyValue = 2730 - AdditionalShinyValue;  // ~1/2730
+    }
+    else
+    {
+        BoostedShinyValue = 4096 - AdditionalShinyValue;
+    }
+	if (ForceShiny)
+	{
+		BoostedShinyValue = 1;
+	}
+    if ((Random32() % BoostedShinyValue) == 0
+        || FlagGet(FLAG_STARTER_SHINY_0)
+        || FlagGet(FLAG_STARTER_SHINY_1)
+        || FlagGet(FLAG_STARTER_SHINY_2))
+    {
+        gSoftResetDisabled = TRUE;
+		IsShiny = TRUE;
+
+        value = GetTrainerShinyValue();
+
+        do
+        {
+            personality = Random32();
+        }
+        while (
+		(!IsShiny && GetNatureFromPersonality(personality) != PIDNature)
+		|| (!FlagGet(0x049) && ((HIHALF(value) ^ LOHALF(value)
+			^ HIHALF(personality) ^ LOHALF(personality)) >= SHINY_ODDS))
+		);
+    }
+    else
+    {	
+		do
+		{
+			personality = Random32();
+		}
+		while (GetNatureFromPersonality(personality) != PIDNature);
+    }
+
+	ivValue1 = Random();
+	ivValue2 = Random();
+	gRngValue = Tmp_RNG;
+    return personality;
+
+}
+
 void CreateMon(struct Pokemon *mon, u16 species, u8 level, u8 fixedIV, u8 hasFixedPersonality, u32 fixedPersonality, u8 otIdType, u32 fixedOtId)
 {
     u32 mail;
@@ -2203,6 +2375,17 @@ void CreateMon(struct Pokemon *mon, u16 species, u8 level, u8 fixedIV, u8 hasFix
     CalculateMonStats(mon);
 }
 
+u8 GetStarterIdFromSpecies(u16 species)
+{
+    switch (species)
+    {
+    case SPECIES_TREECKO: return 1;
+    case SPECIES_TORCHIC: return 1;
+    case SPECIES_MUDKIP:  return 1;
+    default: return 0;
+    }
+}
+
 void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, u8 hasFixedPersonality, u32 fixedPersonality, u8 otIdType, u32 fixedOtId)
 {
     u8 speciesName[POKEMON_NAME_LENGTH + 1];
@@ -2212,11 +2395,23 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
 
     ZeroBoxMonData(boxMon);
 
-    if (hasFixedPersonality)
-        personality = fixedPersonality;
+    if (!hasFixedPersonality)
+	{
+		personality = RollShinyPersonalityChance (Random() % 24, FALSE);
+	}
     else
-        personality = Random32();
-
+	{
+		if (FlagGet (0x04B) && FlagGet (0x04C))
+		{
+			personality = RollShinyPersonalityChance (Random() % 24, TRUE);
+		}
+		else
+		{
+			personality = RollShinyPersonalityChance (GetNatureFromPersonality (fixedPersonality), FALSE);
+		}
+			
+	}
+	
     SetBoxMonData(boxMon, MON_DATA_PERSONALITY, &personality);
 
     // Determine original trainer ID
@@ -2261,20 +2456,27 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
     value = ITEM_POKE_BALL;
     SetBoxMonData(boxMon, MON_DATA_POKEBALL, &value);
     SetBoxMonData(boxMon, MON_DATA_OT_GENDER, &gSaveBlock2Ptr->playerGender);
+	FlagClear(FLAG_STARTER_SHINY_0);
+	FlagClear(FLAG_STARTER_SHINY_1);
+	FlagClear(FLAG_STARTER_SHINY_2);
+	FlagClear (0x04B);
+	FlagClear (0x04C);
+	FlagClear (0x049);
 
     if (fixedIV < USE_RANDOM_IVS)
     {
-        SetBoxMonData(boxMon, MON_DATA_HP_IV, &fixedIV);
-        SetBoxMonData(boxMon, MON_DATA_ATK_IV, &fixedIV);
-        SetBoxMonData(boxMon, MON_DATA_DEF_IV, &fixedIV);
-        SetBoxMonData(boxMon, MON_DATA_SPEED_IV, &fixedIV);
-        SetBoxMonData(boxMon, MON_DATA_SPATK_IV, &fixedIV);
-        SetBoxMonData(boxMon, MON_DATA_SPDEF_IV, &fixedIV);
+        SetBoxMonData(boxMon, MON_DATA_HP_IV, &ivValue1);
+        SetBoxMonData(boxMon, MON_DATA_ATK_IV, &ivValue1);
+        SetBoxMonData(boxMon, MON_DATA_DEF_IV, &ivValue1);
+        SetBoxMonData(boxMon, MON_DATA_SPEED_IV, &ivValue1);
+        SetBoxMonData(boxMon, MON_DATA_SPATK_IV, &ivValue1);
+        SetBoxMonData(boxMon, MON_DATA_SPDEF_IV, &ivValue1);
     }
     else
     {
         u32 iv;
-        value = Random();
+		
+        value = ivValue1;
 
         iv = value & MAX_IV_MASK;
         SetBoxMonData(boxMon, MON_DATA_HP_IV, &iv);
@@ -2283,7 +2485,7 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
         iv = (value & (MAX_IV_MASK << 10)) >> 10;
         SetBoxMonData(boxMon, MON_DATA_DEF_IV, &iv);
 
-        value = Random();
+        value = ivValue2;
 
         iv = value & MAX_IV_MASK;
         SetBoxMonData(boxMon, MON_DATA_SPEED_IV, &iv);
@@ -2361,10 +2563,19 @@ void CreateMaleMon(struct Pokemon *mon, u16 species, u8 level)
 }
 
 void CreateMonWithIVsPersonality(struct Pokemon *mon, u16 species, u8 level, u32 ivs, u32 personality)
-{
-    CreateMon(mon, species, level, 0, TRUE, personality, OT_ID_PLAYER_ID, 0);
-    SetMonData(mon, MON_DATA_IVS, &ivs);
-    CalculateMonStats(mon);
+{	
+    if (species != SPECIES_LATIAS && species != SPECIES_LATIOS)
+	{
+		CreateMon(mon, species, level, 0, TRUE, personality, OT_ID_PLAYER_ID, 0);
+		SetMonData(mon, MON_DATA_IVS, &ivs);
+		CalculateMonStats(mon);
+	}
+	else
+	{
+		
+		CreateMon(mon, species, level, USE_RANDOM_IVS, FALSE, personality, OT_ID_PLAYER_ID, 0);
+		CalculateMonStats(mon);
+	}
 }
 
 void CreateMonWithIVsOTID(struct Pokemon *mon, u16 species, u8 level, u8 *ivs, u32 otId)
@@ -2881,10 +3092,8 @@ void CalculateMonStats(struct Pokemon *mon)
         {
             // BUG: currentHP is unintentionally able to become <= 0 after the instruction below. This causes the pomeg berry glitch.
             currentHP += newMaxHP - oldMaxHP;
-            #ifdef BUGFIX
             if (currentHP <= 0)
                 currentHP = 1;
-            #endif
         }
         else
         {
@@ -3173,10 +3382,8 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
         if (attackerHoldEffect == sHoldEffectToType[i][0]
             && type == sHoldEffectToType[i][1])
         {
-            if (IS_TYPE_PHYSICAL(type))
-                attack = (attack * (attackerHoldEffectParam + 100)) / 100;
-            else
-                spAttack = (spAttack * (attackerHoldEffectParam + 100)) / 100;
+            attack = (attack * (attackerHoldEffectParam + 100)) / 100;
+            spAttack = (spAttack * (attackerHoldEffectParam + 100)) / 100;
             break;
         }
     }
@@ -3201,7 +3408,7 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
 
     // Apply abilities / field sports
     if (defender->ability == ABILITY_THICK_FAT && (type == TYPE_FIRE || type == TYPE_ICE))
-        spAttack /= 2;
+        gBattleMovePower /= 2;
     if (attacker->ability == ABILITY_HUSTLE)
         attack = (150 * attack) / 100;
     if (attacker->ability == ABILITY_PLUS && ABILITY_ON_FIELD2(ABILITY_MINUS))
@@ -3229,7 +3436,7 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
     if (gBattleMoves[gCurrentMove].effect == EFFECT_EXPLOSION)
         defense /= 2;
 
-    if (IS_TYPE_PHYSICAL(type))
+    if (IS_MOVE_PHYSICAL(gCurrentMove))
     {
         if (gCritMultiplier == 2)
         {
@@ -3284,7 +3491,7 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
     if (type == TYPE_MYSTERY)
         damage = 0; // is ??? type. does 0 damage.
 
-    if (IS_TYPE_SPECIAL(type))
+    if (IS_MOVE_SPECIAL(gCurrentMove))
     {
         if (gCritMultiplier == 2)
         {
@@ -3327,7 +3534,14 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
         if ((gBattleTypeFlags & BATTLE_TYPE_DOUBLE) && gBattleMoves[move].target == MOVE_TARGET_BOTH && CountAliveMonsInBattle(BATTLE_ALIVE_DEF_SIDE) == 2)
             damage /= 2;
 
-        // Are effects of weather negated with cloud nine or air lock
+    }
+
+    return damage + 2;
+	
+		    // Flash fire triggered
+        if ((gBattleResources->flags->flags[battlerIdAtk] & RESOURCE_FLAG_FLASH_FIRE) && type == TYPE_FIRE)
+            damage = (15 * damage) / 10;
+	
         if (WEATHER_HAS_EFFECT2)
         {
             // Rain weakens Fire, boosts Water
@@ -3362,13 +3576,6 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
                 }
             }
         }
-
-        // Flash fire triggered
-        if ((gBattleResources->flags->flags[battlerIdAtk] & RESOURCE_FLAG_FLASH_FIRE) && type == TYPE_FIRE)
-            damage = (15 * damage) / 10;
-    }
-
-    return damage + 2;
 }
 
 u8 CountAliveMonsInBattle(u8 caseId)
@@ -3707,14 +3914,7 @@ u32 GetMonData3(struct Pokemon *mon, s32 field, u8 *data)
     return ret;
 }
 
-#ifndef UBFIX
 u32 GetMonData2(struct Pokemon *mon, s32 field) __attribute__((alias("GetMonData3")));
-#else
-u32 GetMonData2(struct Pokemon *mon, s32 field)
-{
-    return GetMonData3(mon, field, NULL);
-}
-#endif
 
 /* GameFreak called GetBoxMonData with either 2 or 3 arguments, for type
  * safety we have a GetBoxMonData macro (in include/pokemon.h) which
@@ -4076,14 +4276,7 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
     return retVal;
 }
 
-#ifndef UBFIX
 u32 GetBoxMonData2(struct BoxPokemon *boxMon, s32 field) __attribute__((alias("GetBoxMonData3")));
-#else
-u32 GetBoxMonData2(struct BoxPokemon *boxMon, s32 field)
-{
-    return GetBoxMonData3(boxMon, field, NULL);
-}
-#endif
 
 #define SET8(lhs) (lhs) = *data
 #define SET16(lhs) (lhs) = data[0] + (data[1] << 8)

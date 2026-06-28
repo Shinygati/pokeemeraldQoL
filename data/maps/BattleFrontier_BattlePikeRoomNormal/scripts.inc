@@ -34,6 +34,7 @@ BattleFrontier_BattlePikeRoomNormal_EventScript_EnterSingleBattleRoom::
 	setvar VAR_0x8004, SPECIAL_BATTLE_PIKE_SINGLE
 	setvar VAR_0x8005, 0
 	special DoSpecialTrainerBattle
+	waitstate
 	switch VAR_RESULT
 	case 1, BattleFrontier_BattlePikeRoomNormal_EventScript_WonSingleBattle
 BattleFrontier_BattlePikeRoomNormal_EventScript_WarpToLobbyLost::
@@ -63,6 +64,7 @@ BattleFrontier_BattlePikeRoomNormal_EventScript_EnterHardBattleRoom::
 	setvar VAR_0x8004, SPECIAL_BATTLE_PIKE_SINGLE
 	setvar VAR_0x8005, 0
 	special DoSpecialTrainerBattle
+	waitstate
 	switch VAR_RESULT
 	case 1, BattleFrontier_BattlePikeRoomNormal_EventScript_WonHardBattle
 	goto BattleFrontier_BattlePikeRoomNormal_EventScript_WarpToLobbyLost
@@ -253,6 +255,7 @@ BattleFrontier_BattlePikeRoomNormal_EventScript_EnterDoubleBattleRoom::
 	setvar VAR_0x8004, SPECIAL_BATTLE_PIKE_DOUBLE
 	setvar VAR_0x8005, 0
 	special DoSpecialTrainerBattle
+	waitstate
 	switch VAR_RESULT
 	case 1, BattleFrontier_BattlePikeRoomNormal_EventScript_WonDoubleBattle
 	goto BattleFrontier_BattlePikeRoomNormal_EventScript_WarpToLobbyLost
@@ -380,6 +383,7 @@ BattleFrontier_BattlePikeRoomNormal_EventScript_DoPikeQueenBattle::
 	setvar VAR_0x8004, SPECIAL_BATTLE_PIKE_SINGLE
 	setvar VAR_0x8005, 0
 	special DoSpecialTrainerBattle
+	waitstate
 	return
 
 BattleFrontier_BattlePikeRoomNormal_Movement_ApproachPlayer:

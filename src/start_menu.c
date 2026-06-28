@@ -47,12 +47,16 @@
 #include "constants/rgb.h"
 #include "constants/songs.h"
 
+#define FLAG_STARTMENU_OPENED 0x048
+#define FLAG_SAVE_IN_PROGRESS 0X047
+
 // Menu actions
 enum
 {
     MENU_ACTION_POKEDEX,
     MENU_ACTION_POKEMON,
     MENU_ACTION_BAG,
+	MENU_ACTION_PC,
     MENU_ACTION_POKENAV,
     MENU_ACTION_PLAYER,
     MENU_ACTION_SAVE,
@@ -592,6 +596,14 @@ void ShowStartMenu(void)
 
 static bool8 HandleStartMenuInput(void)
 {
+	if (JOY_NEW(START_BUTTON))
+	{
+		FlagSet(FLAG_STARTMENU_OPENED);
+	}
+	if (JOY_NEW(R_BUTTON))
+	{
+		StartMenuSaveCallback();
+	}
     if (JOY_NEW(DPAD_UP))
     {
         PlaySE(SE_SELECT);
@@ -628,6 +640,7 @@ static bool8 HandleStartMenuInput(void)
 
     if (JOY_NEW(START_BUTTON | B_BUTTON))
     {
+		FlagSet(FLAG_STARTMENU_OPENED);
         RemoveExtraStartMenuWindows();
         HideStartMenu();
         return TRUE;
@@ -1040,7 +1053,7 @@ static u8 SaveFileExistsCallback(void)
     }
     else
     {
-        ShowSaveMessage(gText_AlreadySavedFile, SaveConfirmOverwriteCallback);
+        sSaveDialogCallback = SaveSavingMessageCallback;
     }
 
     return SAVE_IN_PROGRESS;
@@ -1209,7 +1222,7 @@ static bool32 InitSaveWindowAfterLinkBattle(u8 *state)
         SetVBlankCallback(NULL);
         ScanlineEffect_Stop();
         DmaClear16(3, PLTT, PLTT_SIZE);
-        DmaClearLarge16(3, (void *)VRAM, VRAM_SIZE, 0x1000);
+        DmaFillLarge16(3, 0, (void *)VRAM, VRAM_SIZE, 0x1000);
         break;
     case 1:
         ResetSpriteData();

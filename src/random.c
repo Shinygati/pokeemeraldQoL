@@ -15,7 +15,7 @@ u16 Random(void)
     return gRngValue >> 16;
 }
 
-void SeedRng(u16 seed)
+void SeedRng(u32 seed)
 {
     gRngValue = seed;
     sUnknown = 0;

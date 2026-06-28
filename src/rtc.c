@@ -32,6 +32,8 @@ static const s32 sNumDaysInMonths[MONTH_COUNT] =
     [MONTH_DEC - 1] = 31,
 };
 
+
+
 void RtcDisableInterrupts(void)
 {
     sSavedIme = REG_IME;
@@ -84,6 +86,13 @@ u16 ConvertDateToDayCount(u8 year, u8 month, u8 day)
     dayCount += day;
 
     return dayCount;
+}
+
+u32 RtcGetAbsoluteMinuteCount(void)
+{
+    struct SiiRtcInfo rtc;
+    RtcGetInfo(&rtc);
+    return (RtcGetDayCount(&rtc) * 1440) + (ConvertBcdToBinary(rtc.hour) * 60) + ConvertBcdToBinary(rtc.minute);
 }
 
 u16 RtcGetDayCount(struct SiiRtcInfo *rtc)
@@ -215,7 +224,7 @@ void RtcReset(void)
     RtcRestoreInterrupts();
 }
 
-static void UNUSED FormatDecimalTime(u8 *dest, s32 hour, s32 minute, s32 second)
+void FormatDecimalTime(u8 *dest, s32 hour, s32 minute, s32 second)
 {
     dest = ConvertIntToDecimalStringN(dest, hour, STR_CONV_MODE_LEADING_ZEROS, 2);
     *dest++ = CHAR_COLON;
@@ -225,7 +234,7 @@ static void UNUSED FormatDecimalTime(u8 *dest, s32 hour, s32 minute, s32 second)
     *dest = EOS;
 }
 
-static void UNUSED FormatHexTime(u8 *dest, s32 hour, s32 minute, s32 second)
+void FormatHexTime(u8 *dest, s32 hour, s32 minute, s32 second)
 {
     dest = ConvertIntToHexStringN(dest, hour, STR_CONV_MODE_LEADING_ZEROS, 2);
     *dest++ = CHAR_COLON;
@@ -235,12 +244,12 @@ static void UNUSED FormatHexTime(u8 *dest, s32 hour, s32 minute, s32 second)
     *dest = EOS;
 }
 
-static void UNUSED FormatHexRtcTime(u8 *dest)
+void FormatHexRtcTime(u8 *dest)
 {
     FormatHexTime(dest, sRtc.hour, sRtc.minute, sRtc.second);
 }
 
-static void UNUSED FormatDecimalDate(u8 *dest, s32 year, s32 month, s32 day)
+void FormatDecimalDate(u8 *dest, s32 year, s32 month, s32 day)
 {
     dest = ConvertIntToDecimalStringN(dest, year, STR_CONV_MODE_LEADING_ZEROS, 4);
     *dest++ = CHAR_HYPHEN;
@@ -250,7 +259,7 @@ static void UNUSED FormatDecimalDate(u8 *dest, s32 year, s32 month, s32 day)
     *dest = EOS;
 }
 
-static void UNUSED FormatHexDate(u8 *dest, s32 year, s32 month, s32 day)
+void FormatHexDate(u8 *dest, s32 year, s32 month, s32 day)
 {
     dest = ConvertIntToHexStringN(dest, year, STR_CONV_MODE_LEADING_ZEROS, 4);
     *dest++ = CHAR_HYPHEN;

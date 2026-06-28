@@ -33,6 +33,11 @@ void RtcGetStatus(struct SiiRtcInfo *rtc);
 void RtcGetRawInfo(struct SiiRtcInfo *rtc);
 u16 RtcCheckInfo(struct SiiRtcInfo *rtc);
 void RtcReset(void);
+void FormatDecimalTime(u8 *dest, s32 hour, s32 minute, s32 second);
+void FormatHexTime(u8 *dest, s32 hour, s32 minute, s32 second);
+void FormatHexRtcTime(u8 *dest);
+void FormatDecimalDate(u8 *dest, s32 year, s32 month, s32 day);
+void FormatHexDate(u8 *dest, s32 year, s32 month, s32 day);
 void RtcCalcTimeDifference(struct SiiRtcInfo *rtc, struct Time *result, struct Time *t);
 void RtcCalcLocalTime(void);
 void RtcInitLocalTimeOffset(s32 hour, s32 minute);
@@ -40,5 +45,6 @@ void RtcCalcLocalTimeOffset(s32 days, s32 hours, s32 minutes, s32 seconds);
 void CalcTimeDifference(struct Time *result, struct Time *t1, struct Time *t2);
 u32 RtcGetMinuteCount(void);
 u32 RtcGetLocalDayCount(void);
+u32 RtcGetAbsoluteMinuteCount(void);
 
 #endif // GUARD_RTC_UTIL_H

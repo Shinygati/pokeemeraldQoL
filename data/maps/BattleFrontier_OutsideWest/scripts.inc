@@ -298,6 +298,39 @@ BattleFrontier_OutsideWest_EventScript_PokefanF::
 	msgbox BattleFrontier_OutsideWest_Text_MonWithLongTailInFrontier, MSGBOX_NPC
 	end
 
+BattleFrontier_ShinyBoostNPC_EventScript_Shiny::
+    lockall
+    faceplayer
+    goto_if_set FLAG_NPC_SHINY_USED, BattleFrontier_ShinyBoostNPC_AlreadyUsed
+	goto_if_unset FLAG_NPC_SHINY_USED, BattleFrontier_ShinyBoostNPC_NotUsed
+	release
+	end
+
+BattleFrontier_ShinyBoostNPC_AlreadyUsed::
+    msgbox BattleFrontier_ShinyBoostNPC_Text_ShinyAlreadyUsed
+	closemessage
+    end
+
+BattleFrontier_ShinyBoostNPC_NotUsed::
+	msgbox BattleFrontier_ShinyBoostNPC_Text_Shiny
+	closemessage
+	setflag FLAG_NPC_SHINY_USED
+	special SaveGame
+	waitstate
+	goto_if_eq VAR_RESULT, 0 BattleFrontier_ShinyBoostNPC_SaveCancelled
+	msgbox BattleFrontier_ShinyBoostNPC_Text_PostSave
+	closemessage
+	special GiveShinyBoost
+    return
+
+BattleFrontier_ShinyBoostNPC_SaveCancelled::
+	clearflag FLAG_NPC_SHINY_USED
+	closemessage
+	msgbox BattleFrontier_ShinyBoostNPC_SaveCancelled_Text
+	closemessage
+	release
+	end
+
 BattleFrontier_OutsideWest_Text_BattleDomeSign:
 	.string "This is the BATTLE DOME!\n"
 	.string "Your path to the invincible superstar!$"
@@ -515,3 +548,29 @@ BattleFrontier_OutsideWest_Text_MonWithLongTailInFrontier:
 	.string "Oh, challenges can wait. I feel driven\n"
 	.string "to find the delightful creature!$"
 
+BattleFrontier_ShinyBoostNPC_Text_Shiny:
+	.string "Ah, I see you've heard the rumors…\p"
+	.string "Before I tell you more please save\n"
+	.string "the game.\p"
+	.string "It helps me keep track of what I've\n"
+	.string "told other Trainers.$"
+
+BattleFrontier_ShinyBoostNPC_Text_PostSave:
+	.string "There have been reports of POKéMON\n"
+	.string "appearing in unusual colors.\p"
+	.string "Many TRAINERS dismiss such stories,\n"
+	.string "but others swear they've seen them.\p"
+	.string "Some believe that under the right\n"
+	.string "conditions, they appear more often.\p"
+	.string "Whether that's true or just an old\n"
+	.string "fisherman's tale... who's to say?$"
+
+BattleFrontier_ShinyBoostNPC_Text_ShinyAlreadyUsed:
+	.string "I've already told you about the\n"
+    .string "unusual colored sightings today.\p"
+    .string "Come back tomorrow if you'd like to\n"
+    .string "hear more reports.$"
+
+BattleFrontier_ShinyBoostNPC_SaveCancelled_Text:
+    .string "It’s best to save your progress\n"
+    .string "before I continue.$"

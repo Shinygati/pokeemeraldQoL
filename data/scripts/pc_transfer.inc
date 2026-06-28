@@ -8,6 +8,7 @@ Common_EventScript_GetGiftMonPartySlot::
 Common_EventScript_NameReceivedBoxMon::
 	fadescreen FADE_TO_BLACK
 	special ChangeBoxPokemonNickname
+	waitstate
 	lock
 	faceplayer
 	return

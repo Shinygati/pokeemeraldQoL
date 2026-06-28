@@ -65,6 +65,10 @@
 #include "constants/weather.h"
 #include "constants/metatile_labels.h"
 #include "palette.h"
+#include "event_data.h"
+#include "daycare.h"
+#include "constants/species.h"
+#include "constants/region_map_sections.h"
 
 #define TAG_ITEM_ICON 5500
 
@@ -1046,6 +1050,8 @@ static void PCTurnOnEffect(struct Task *task)
 static void PCTurnOnEffect_SetMetatile(s16 isScreenOn, s8 dx, s8 dy)
 {
     u16 metatileId = 0;
+	if(gSysPcFromPokenav)
+        return;
     if (isScreenOn)
     {
         // Screen is on, set it off
@@ -1083,6 +1089,10 @@ static void PCTurnOffEffect(void)
 
     // Get where the PC should be, depending on where the player is looking.
     u8 playerDirection = GetPlayerFacingDirection();
+	if(gSysPcFromPokenav){
+        gSysPcFromPokenav = FALSE;
+        return;
+    }
     switch (playerDirection)
     {
     case DIR_NORTH:
@@ -1255,7 +1265,7 @@ void SpawnCameraObject(void)
                                                   LOCALID_CAMERA,
                                                   gSaveBlock1Ptr->pos.x + MAP_OFFSET,
                                                   gSaveBlock1Ptr->pos.y + MAP_OFFSET,
-                                                  ELEVATION_DEFAULT);
+                                                  3); // elevation
     gObjectEvents[obj].invisible = TRUE;
     CameraObjectSetFollowedSpriteId(gObjectEvents[obj].spriteId);
 }
@@ -2555,7 +2565,7 @@ static void Task_ShowScrollableMultichoice(u8 taskId)
     sScrollableMultichoice_ItemSpriteId = MAX_SPRITES;
     FillFrontierExchangeCornerWindowAndItemIcon(task->tScrollMultiId, 0);
     ShowBattleFrontierTutorWindow(task->tScrollMultiId, 0);
-    sScrollableMultichoice_ListMenuItem = AllocZeroed(task->tNumItems * sizeof(struct ListMenuItem));
+    sScrollableMultichoice_ListMenuItem = AllocZeroed(task->tNumItems * 8);
     sFrontierExchangeCorner_NeverRead = 0;
     InitScrollableMultichoice();
 
@@ -3267,17 +3277,17 @@ void DoDeoxysRockInteraction(void)
 }
 
 static const u16 sDeoxysRockPalettes[DEOXYS_ROCK_LEVELS][16] = {
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_1.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_2.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_3.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_4.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_5.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_6.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_7.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_8.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_9.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_10.pal", ".gbapal"),
-    INCGFX_U16("graphics/field_effects/palettes/deoxys_rock_11.pal", ".gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_1.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_2.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_3.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_4.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_5.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_6.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_7.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_8.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_9.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_10.gbapal"),
+    INCBIN_U16("graphics/field_effects/palettes/deoxys_rock_11.gbapal"),
 };
 
 static const u8 sDeoxysRockCoords[DEOXYS_ROCK_LEVELS][2] = {
@@ -4267,4 +4277,175 @@ void SetPlayerGotFirstFans(void)
 u8 Script_TryGainNewFanFromCounter(void)
 {
     return TryGainNewFanFromCounter(gSpecialVar_0x8004);
+}
+
+void GiveRandomEgg(void)
+{
+    static const u16 randomEggSpeciesList[] = {
+		SPECIES_BULBASAUR,
+        SPECIES_CHARMANDER,
+        SPECIES_SQUIRTLE,
+        SPECIES_CATERPIE,
+        SPECIES_WEEDLE,
+        SPECIES_PIDGEY,
+        SPECIES_RATTATA,
+        SPECIES_SPEAROW,
+        SPECIES_EKANS,
+        SPECIES_SANDSHREW,
+        SPECIES_NIDORAN_F,
+        SPECIES_NIDORAN_M,
+        SPECIES_VULPIX,
+        SPECIES_ZUBAT,
+        SPECIES_ODDISH,
+        SPECIES_PARAS,
+        SPECIES_VENONAT,
+        SPECIES_DIGLETT,
+        SPECIES_MEOWTH,
+        SPECIES_PSYDUCK,
+        SPECIES_MANKEY,
+        SPECIES_GROWLITHE,
+        SPECIES_POLIWAG,
+        SPECIES_ABRA,
+        SPECIES_MACHOP,
+        SPECIES_BELLSPROUT,
+        SPECIES_TENTACOOL,
+        SPECIES_GEODUDE,
+        SPECIES_PONYTA,
+        SPECIES_SLOWPOKE,
+        SPECIES_MAGNEMITE,
+        SPECIES_FARFETCHD,
+        SPECIES_DODUO,
+        SPECIES_SEEL,
+        SPECIES_GRIMER,
+        SPECIES_SHELLDER,
+        SPECIES_GASTLY,
+        SPECIES_ONIX,
+        SPECIES_DROWZEE,
+        SPECIES_KRABBY,
+        SPECIES_VOLTORB,
+        SPECIES_EXEGGCUTE,
+        SPECIES_CUBONE,
+        SPECIES_LICKITUNG,
+        SPECIES_KOFFING,
+        SPECIES_RHYHORN,
+        SPECIES_CHANSEY,
+        SPECIES_TANGELA,
+        SPECIES_KANGASKHAN,
+        SPECIES_HORSEA,
+        SPECIES_GOLDEEN,
+        SPECIES_STARYU,
+        SPECIES_MR_MIME,
+        SPECIES_SCYTHER,
+        SPECIES_JYNX,
+        SPECIES_ELECTABUZZ,
+        SPECIES_MAGMAR,
+        SPECIES_PINSIR,
+        SPECIES_TAUROS,
+        SPECIES_MAGIKARP,
+        SPECIES_DITTO,
+        SPECIES_EEVEE,
+        SPECIES_PORYGON,
+        SPECIES_OMANYTE,
+        SPECIES_KABUTO,
+        SPECIES_AERODACTYL,
+        SPECIES_SNORLAX,
+        SPECIES_DRATINI,
+        SPECIES_CHIKORITA,
+        SPECIES_CYNDAQUIL,
+        SPECIES_TOTODILE,
+        SPECIES_SENTRET,
+        SPECIES_HOOTHOOT,
+        SPECIES_LEDYBA,
+        SPECIES_SPINARAK,
+        SPECIES_CHINCHOU,
+        SPECIES_PICHU,
+        SPECIES_CLEFFA,
+        SPECIES_IGGLYBUFF,
+        SPECIES_TOGEPI,
+        SPECIES_NATU,
+        SPECIES_MAREEP,
+        SPECIES_HOPPIP,
+        SPECIES_SUNKERN,
+        SPECIES_WOOPER,
+        SPECIES_PINECO,
+        SPECIES_SNUBBULL,
+        SPECIES_TEDDIURSA,
+        SPECIES_SLUGMA,
+        SPECIES_SWINUB,
+        SPECIES_REMORAID,
+        SPECIES_HOUNDOUR,
+        SPECIES_PHANPY,
+        SPECIES_LARVITAR,
+        SPECIES_TREECKO,
+        SPECIES_TORCHIC,
+        SPECIES_MUDKIP,
+        SPECIES_POOCHYENA,
+        SPECIES_ZIGZAGOON,
+        SPECIES_WURMPLE,
+        SPECIES_LOTAD,
+        SPECIES_SEEDOT,
+        SPECIES_TAILLOW,
+        SPECIES_WINGULL,
+        SPECIES_RALTS,
+        SPECIES_SURSKIT,
+        SPECIES_SHROOMISH,
+        SPECIES_SLAKOTH,
+        SPECIES_NINCADA,
+        SPECIES_WHISMUR,
+        SPECIES_MAKUHITA,
+        SPECIES_NOSEPASS,
+        SPECIES_SKITTY,
+        SPECIES_ARON,
+        SPECIES_ELECTRIKE,
+        SPECIES_GULPIN,
+        SPECIES_CARVANHA,
+        SPECIES_WAILMER,
+        SPECIES_NUMEL,
+        SPECIES_TORKOAL,
+        SPECIES_SPOINK,
+        SPECIES_SPINDA,
+        SPECIES_TRAPINCH,
+        SPECIES_CACNEA,
+        SPECIES_SWABLU,
+        SPECIES_ZANGOOSE,
+        SPECIES_SEVIPER,
+        SPECIES_LUNATONE,
+        SPECIES_SOLROCK,
+        SPECIES_BARBOACH,
+        SPECIES_CORPHISH,
+        SPECIES_BALTOY,
+        SPECIES_LILEEP,
+        SPECIES_ANORITH,
+        SPECIES_FEEBAS,
+        SPECIES_CASTFORM,
+        SPECIES_KECLEON,
+        SPECIES_SHUPPET,
+        SPECIES_DUSKULL,
+        SPECIES_TROPIUS,
+        SPECIES_CHIMECHO,
+        SPECIES_ABSOL,
+        SPECIES_WYNAUT,
+        SPECIES_SNORUNT,
+        SPECIES_SPHEAL,
+        SPECIES_CLAMPERL,
+        SPECIES_RELICANTH,
+        SPECIES_LUVDISC,
+        SPECIES_BAGON,
+        SPECIES_BELDUM
+    };
+
+    struct Pokemon mon;
+    u32 eggCycles;
+    u16 species = randomEggSpeciesList[Random() % ARRAY_COUNT(randomEggSpeciesList)];
+	
+	FlagSet(0x04E);
+    CreateDailyEgg(&mon, species, MAPSEC_ROUTE_117);
+
+    // Return value ignored (should only ever go to party)
+    GiveMonToPlayer(&mon);
+}
+
+void GiveShinyBoost(void)
+{
+	FlagSet(0x037);
 }

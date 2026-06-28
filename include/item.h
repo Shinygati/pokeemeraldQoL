@@ -58,7 +58,7 @@ u16 BagGetItemIdByPocketPosition(u8 pocketId, u16 pocketPos);
 u16 BagGetQuantityByPocketPosition(u8 pocketId, u16 pocketPos);
 void CompactItemsInBagPocket(struct BagPocket *bagPocket);
 void SortBerriesOrTMHMs(struct BagPocket *bagPocket);
-void MoveItemSlotInList(struct ItemSlot *itemSlots, u32 from, u32 to);
+void MoveItemSlotInList(struct ItemSlot *itemSlots_, u32 from, u32 to_);
 void ClearBag(void);
 u16 CountTotalItemQuantityInBag(u16 itemId);
 bool8 AddPyramidBagItem(u16 itemId, u16 count);
@@ -75,6 +75,7 @@ ItemUseFunc GetItemFieldFunc(u16 itemId);
 u8 GetItemBattleUsage(u16 itemId);
 ItemUseFunc GetItemBattleFunc(u16 itemId);
 u8 GetItemSecondaryId(u16 itemId);
+void ItemId_GetHoldEffectParam_Script();
 
 /* Expands to:
  * enum

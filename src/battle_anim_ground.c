@@ -415,7 +415,7 @@ static void AnimTask_DigSetVisibleUnderground(u8 taskId)
 
 static void AnimTask_DigRiseUpFromHole(u8 taskId)
 {
-    u8 y;
+    u8 var0;
     struct Task *task = &gTasks[taskId];
 
     switch (task->data[0])
@@ -428,9 +428,9 @@ static void AnimTask_DigRiseUpFromHole(u8 taskId)
         else
             task->data[12] = gBattle_BG2_X;
 
-        y = GetBattlerYCoordWithElevation(gBattleAnimAttacker);
-task->data[14] = y - 32;
-task->data[15] = y + 32;
+        var0 =  GetBattlerYCoordWithElevation(gBattleAnimAttacker);
+        task->data[14] = var0 - 32;
+        task->data[15] = var0 + 32;
         task->data[0]++;
         break;
     case 1:
@@ -503,7 +503,7 @@ static void SetDigScanlineEffect(u8 useBG1, s16 y, s16 endY)
 // arg 5: duration
 void AnimDirtPlumeParticle(struct Sprite *sprite)
 {
-    u16 battler; // Should be u8.
+    s8 battler;
     s16 xOffset;
 
     if (gBattleAnimArgs[0] == 0)
@@ -542,7 +542,7 @@ static void AnimDirtPlumeParticle_Step(struct Sprite *sprite)
 // arg 2: duration
 static void AnimDigDirtMound(struct Sprite *sprite)
 {
-    u8 battler;
+    s8 battler;
 
     if (gBattleAnimArgs[0] == 0)
         battler = gBattleAnimAttacker;
@@ -708,7 +708,7 @@ static void AnimTask_ShakeBattlers(u8 taskId)
 static void SetBattlersXOffsetForShake(struct Task *task)
 {
     u16 i;
-    s16 xOffset;
+    u16 xOffset;
 
     if ((task->tTimer & 1) == 0)
         xOffset = (task->tHorizOffset / 2) + (task->tHorizOffset & 1);
@@ -733,11 +733,7 @@ static void SetBattlersXOffsetForShake(struct Task *task)
 
 void AnimTask_IsPowerOver99(u8 taskId)
 {
-#ifdef UBFIX
-    gBattleAnimArgs[7] = gAnimMovePower > 99;
-#else
     gBattleAnimArgs[15] = gAnimMovePower > 99;
-#endif
     DestroyAnimVisualTask(taskId);
 }
 

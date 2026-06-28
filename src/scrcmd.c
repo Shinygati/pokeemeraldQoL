@@ -49,7 +49,7 @@
 #include "tv.h"
 #include "window.h"
 #include "constants/event_objects.h"
-#include "constants/comparison_operators.h"
+#include "constants/items.h"
 
 typedef u16 (*SpecialFunc)(void);
 typedef void (*NativeFunc)(void);
@@ -74,15 +74,15 @@ static void CloseBrailleWindow(void);
 // script.c.
 void *const gNullScriptPtr = NULL;
 
-static const u8 sScriptConditionTable[COMPARISON_OPERATORS_COUNT][3] =
+static const u8 sScriptConditionTable[6][3] =
 {
-//                              <  =  >
-    [LESS_THAN] =              {1, 0, 0},
-    [EQUAL] =                  {0, 1, 0},
-    [GREATER_THAN] =           {0, 0, 1},
-    [LESS_THAN_OR_EQUAL] =     {1, 1, 0},
-    [GREATER_THAN_OR_EQUAL] =  {0, 1, 1},
-    [NOT_EQUAL] =              {1, 0, 1},
+//  <  =  >
+    {1, 0, 0}, // <
+    {0, 1, 0}, // =
+    {0, 0, 1}, // >
+    {1, 1, 0}, // <=
+    {0, 1, 1}, // >=
+    {1, 0, 1}, // !=
 };
 
 static u8 *const sScriptStringVars[] =
@@ -170,7 +170,7 @@ bool8 ScrCmd_call(struct ScriptContext *ctx)
 
 bool8 ScrCmd_goto_if(struct ScriptContext *ctx)
 {
-    enum ComparisonOperators condition = ScriptReadByte(ctx);
+    u8 condition = ScriptReadByte(ctx);
     const u8 *ptr = (const u8 *)ScriptReadWord(ctx);
 
     if (sScriptConditionTable[condition][ctx->comparisonResult] == 1)
@@ -180,7 +180,7 @@ bool8 ScrCmd_goto_if(struct ScriptContext *ctx)
 
 bool8 ScrCmd_call_if(struct ScriptContext *ctx)
 {
-    enum ComparisonOperators condition = ScriptReadByte(ctx);
+    u8 condition = ScriptReadByte(ctx);
     const u8 *ptr = (const u8 *)ScriptReadWord(ctx);
 
     if (sScriptConditionTable[condition][ctx->comparisonResult] == 1)
@@ -215,7 +215,7 @@ bool8 ScrCmd_vcall(struct ScriptContext *ctx)
 
 bool8 ScrCmd_vgoto_if(struct ScriptContext *ctx)
 {
-    enum ComparisonOperators condition = ScriptReadByte(ctx);
+    u8 condition = ScriptReadByte(ctx);
     const u8 *ptr = (const u8 *)(ScriptReadWord(ctx) - sAddressOffset);
 
     if (sScriptConditionTable[condition][ctx->comparisonResult] == 1)
@@ -225,7 +225,7 @@ bool8 ScrCmd_vgoto_if(struct ScriptContext *ctx)
 
 bool8 ScrCmd_vcall_if(struct ScriptContext *ctx)
 {
-    enum ComparisonOperators condition = ScriptReadByte(ctx);
+    u8 condition = ScriptReadByte(ctx);
     const u8 *ptr = (const u8 *)(ScriptReadWord(ctx) - sAddressOffset);
 
     if (sScriptConditionTable[condition][ctx->comparisonResult] == 1)
@@ -255,7 +255,7 @@ bool8 ScrCmd_callstd(struct ScriptContext *ctx)
 
 bool8 ScrCmd_gotostd_if(struct ScriptContext *ctx)
 {
-    enum ComparisonOperators condition = ScriptReadByte(ctx);
+    u8 condition = ScriptReadByte(ctx);
     u8 index = ScriptReadByte(ctx);
 
     if (sScriptConditionTable[condition][ctx->comparisonResult] == 1)
@@ -269,7 +269,7 @@ bool8 ScrCmd_gotostd_if(struct ScriptContext *ctx)
 
 bool8 ScrCmd_callstd_if(struct ScriptContext *ctx)
 {
-    enum ComparisonOperators condition = ScriptReadByte(ctx);
+    u8 condition = ScriptReadByte(ctx);
     u8 index = ScriptReadByte(ctx);
 
     if (sScriptConditionTable[condition][ctx->comparisonResult] == 1)
@@ -1714,6 +1714,7 @@ bool8 ScrCmd_checkpartymove(struct ScriptContext *ctx)
 {
     u8 i;
     u16 move = ScriptReadHalfword(ctx);
+    u16 moveId = move; // or convert item to move ID if needed
 
     gSpecialVar_Result = PARTY_SIZE;
     for (i = 0; i < PARTY_SIZE; i++)
@@ -1721,13 +1722,36 @@ bool8 ScrCmd_checkpartymove(struct ScriptContext *ctx)
         u16 species = GetMonData(&gPlayerParty[i], MON_DATA_SPECIES, NULL);
         if (!species)
             break;
-        if (!GetMonData(&gPlayerParty[i], MON_DATA_IS_EGG) && MonKnowsMove(&gPlayerParty[i], move) == TRUE)
+        if (!GetMonData(&gPlayerParty[i], MON_DATA_IS_EGG) && MonKnowsMove(&gPlayerParty[i], moveId))
         {
             gSpecialVar_Result = i;
             gSpecialVar_0x8004 = species;
             break;
         }
     }
+
+    if (gSpecialVar_Result == PARTY_SIZE && CheckBagHasItem(MoveToHM(moveId), 1))
+    {
+        for (i = 0; i < PARTY_SIZE; i++)
+        {
+            u16 species = GetMonData(&gPlayerParty[i], MON_DATA_SPECIES, NULL);
+            if (!species)
+                break;
+            if (!GetMonData(&gPlayerParty[i], MON_DATA_IS_EGG) && CanMonLearnTMHM(&gPlayerParty[i], MoveToHM(moveId) - ITEM_TM01))
+            {
+                gSpecialVar_Result = i;
+                gSpecialVar_0x8004 = species;
+                break;
+            }
+        }
+    }
+
+    if (gSpecialVar_Result == PARTY_SIZE && PlayerHasMove(moveId))
+    {
+        gSpecialVar_Result = 0;
+        gSpecialVar_0x8004 = GetMonData(&gPlayerParty[0], MON_DATA_SPECIES, NULL);
+    }
+
     return FALSE;
 }
 

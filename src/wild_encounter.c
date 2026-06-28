@@ -34,7 +34,9 @@ extern const u8 EventScript_RepelWoreOff[];
 #define NUM_FISHING_SPOTS_2 167
 #define NUM_FISHING_SPOTS_3 149
 #define NUM_FISHING_SPOTS (NUM_FISHING_SPOTS_1 + NUM_FISHING_SPOTS_2 + NUM_FISHING_SPOTS_3)
-
+#define FLAG_STARTER_SHINY_0 0x40
+#define FLAG_STARTER_SHINY_1 0x41
+#define FLAG_STARTER_SHINY_2 0x42
 enum {
     WILD_AREA_LAND,
     WILD_AREA_WATER,
@@ -117,10 +119,17 @@ static bool8 CheckFeebas(void)
     s16 x, y;
     u8 route119Section = 0;
     u16 spotId;
+	bool8 feebasCatchAllTiles = TRUE;
 
     if (gSaveBlock1Ptr->location.mapGroup == MAP_GROUP(MAP_ROUTE119)
      && gSaveBlock1Ptr->location.mapNum == MAP_NUM(MAP_ROUTE119))
     {
+			if(feebasCatchAllTiles){
+				if(Random() % 100 > 49)
+					return TRUE;
+				else
+					return FALSE;
+			}
         GetXYCoordsOneStepInFrontOfPlayer(&x, &y);
         x -= MAP_OFFSET;
         y -= MAP_OFFSET;
@@ -178,7 +187,7 @@ static void FeebasSeedRng(u16 seed)
     sFeebasRngValue = seed;
 }
 
-// NUM_LAND_MONS_ENCOUNTER_SLOTS
+// LAND_WILD_COUNT
 static u8 ChooseWildMonIndex_Land(void)
 {
     u8 rand = Random() % ENCOUNTER_CHANCE_LAND_MONS_TOTAL;
@@ -209,7 +218,7 @@ static u8 ChooseWildMonIndex_Land(void)
         return 11;
 }
 
-// NUM_ROCK_SMASH_MONS_ENCOUNTER_SLOTS / NUM_WATER_MONS_ENCOUNTER_SLOTS
+// ROCK_WILD_COUNT / WATER_WILD_COUNT
 static u8 ChooseWildMonIndex_WaterRock(void)
 {
     u8 rand = Random() % ENCOUNTER_CHANCE_WATER_MONS_TOTAL;
@@ -226,7 +235,7 @@ static u8 ChooseWildMonIndex_WaterRock(void)
         return 4;
 }
 
-// NUM_FISHING_MONS_ENCOUNTER_SLOTS
+// FISH_WILD_COUNT
 static u8 ChooseWildMonIndex_Fishing(u8 rod)
 {
     u8 wildMonIndex = 0;
@@ -334,40 +343,13 @@ static u16 GetCurrentMapWildMonHeaderId(void)
 
 static u8 PickWildMonNature(void)
 {
-    u8 i;
-    u8 j;
-    struct Pokeblock *safariPokeblock;
     u8 natures[NUM_NATURES];
 
-    if (GetSafariZoneFlag() == TRUE && Random() % 100 < 80)
-    {
-        safariPokeblock = SafariZoneGetActivePokeblock();
-        if (safariPokeblock != NULL)
-        {
-            for (i = 0; i < NUM_NATURES; i++)
-                natures[i] = i;
-            for (i = 0; i < NUM_NATURES - 1; i++)
-            {
-                for (j = i + 1; j < NUM_NATURES; j++)
-                {
-                    if (Random() & 1)
-                    {
-                        u8 temp;
-                        SWAP(natures[i], natures[j], temp);
-                    }
-                }
-            }
-            for (i = 0; i < NUM_NATURES; i++)
-            {
-                if (PokeblockGetGain(natures[i], safariPokeblock) > 0)
-                    return natures[i];
-            }
-        }
-    }
+    // Safari Zone Pokéblock logic disabled (skipped)
+
     // check synchronize for a Pokémon with the same ability
     if (!GetMonData(&gPlayerParty[0], MON_DATA_SANITY_IS_EGG)
-        && GetMonAbility(&gPlayerParty[0]) == ABILITY_SYNCHRONIZE
-        && Random() % 2 == 0)
+        && GetMonAbility(&gPlayerParty[0]) == ABILITY_SYNCHRONIZE)
     {
         return GetMonData(&gPlayerParty[0], MON_DATA_PERSONALITY) % NUM_NATURES;
     }
@@ -427,15 +409,15 @@ static bool8 TryGenerateWildMon(const struct WildPokemonInfo *wildMonInfo, u8 ar
     switch (area)
     {
     case WILD_AREA_LAND:
-        if (TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildMonInfo->wildPokemon, TYPE_STEEL, ABILITY_MAGNET_PULL, &wildMonIndex, NUM_LAND_MONS_ENCOUNTER_SLOTS))
+        if (TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildMonInfo->wildPokemon, TYPE_STEEL, ABILITY_MAGNET_PULL, &wildMonIndex, LAND_WILD_COUNT))
             break;
-        if (TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildMonInfo->wildPokemon, TYPE_ELECTRIC, ABILITY_STATIC, &wildMonIndex, NUM_LAND_MONS_ENCOUNTER_SLOTS))
+        if (TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildMonInfo->wildPokemon, TYPE_ELECTRIC, ABILITY_STATIC, &wildMonIndex, LAND_WILD_COUNT))
             break;
 
         wildMonIndex = ChooseWildMonIndex_Land();
         break;
     case WILD_AREA_WATER:
-        if (TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildMonInfo->wildPokemon, TYPE_ELECTRIC, ABILITY_STATIC, &wildMonIndex, NUM_WATER_MONS_ENCOUNTER_SLOTS))
+        if (TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildMonInfo->wildPokemon, TYPE_ELECTRIC, ABILITY_STATIC, &wildMonIndex, WATER_WILD_COUNT))
             break;
 
         wildMonIndex = ChooseWildMonIndex_WaterRock();
@@ -784,7 +766,6 @@ void FishingWildEncounter(u8 rod)
     if (CheckFeebas() == TRUE)
     {
         u8 level = ChooseWildMonLevel(&sWildFeebas);
-
         species = sWildFeebas.species;
         CreateWildMon(species, level);
     }
@@ -792,6 +773,7 @@ void FishingWildEncounter(u8 rod)
     {
         species = GenerateFishingWildMon(gWildMonHeaders[GetCurrentMapWildMonHeaderId()].fishingMonsInfo, rod);
     }
+
     IncrementGameStat(GAME_STAT_FISHING_ENCOUNTERS);
     SetPokemonAnglerSpecies(species);
     BattleSetup_StartWildBattle();
@@ -948,7 +930,7 @@ static bool8 TryGetAbilityInfluencedWildMonIndex(const struct WildPokemon *wildM
 #ifdef BUGFIX
     return TryGetRandomWildMonIndexByType(wildMon, type, size, monIndex);
 #else
-    return TryGetRandomWildMonIndexByType(wildMon, type, NUM_LAND_MONS_ENCOUNTER_SLOTS, monIndex);
+    return TryGetRandomWildMonIndexByType(wildMon, type, LAND_WILD_COUNT, monIndex);
 #endif
 }
 

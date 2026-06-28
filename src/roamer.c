@@ -3,6 +3,7 @@
 #include "pokemon.h"
 #include "random.h"
 #include "roamer.h"
+#include "pokedex.h"
 
 // Despite having a variable to track it, the roamer is
 // hard-coded to only ever be in map group 0
@@ -81,14 +82,97 @@ void ClearRoamerLocationData(void)
     sRoamerLocation[MAP_NUM] = 0;
 }
 
+static u32 GetTrainerShinyValue(void)
+{
+	u32 tid;
+	
+	tid =
+    gSaveBlock2Ptr->playerTrainerId[0]
+  | (gSaveBlock2Ptr->playerTrainerId[1] << 8)
+  | (gSaveBlock2Ptr->playerTrainerId[2] << 16)
+  | (gSaveBlock2Ptr->playerTrainerId[3] << 24);
+  
+  return tid;
+  
+}
+
+bool8 IsPokedexCompleteLati(void)
+{
+    u16 i;
+
+    for (i = 1; i < NATIONAL_DEX_COUNT + 1; i++)
+    {
+        // Skip mythicals / legendaries
+        if (i == NATIONAL_DEX_MEW
+		 || i == NATIONAL_DEX_CELEBI
+         || i == NATIONAL_DEX_JIRACHI
+         || i == NATIONAL_DEX_DEOXYS
+         || i == NATIONAL_DEX_HO_OH
+         || i == NATIONAL_DEX_LUGIA
+
+         )
+            continue;
+
+        if (!GetSetPokedexFlag(i, FLAG_GET_CAUGHT))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+static u32 GenerateCustomPersonality(u8 targetNature)
+{
+    u32 personality;
+    u32 value;
+    u32 BoostedShinyValue;
+	u8 IsShiny = FALSE;
+	
+    if (IsPokedexCompleteLati())
+    {
+        BoostedShinyValue = 2730;  // ~1/2730
+    }
+    else
+    {
+        BoostedShinyValue = 1;
+    }
+
+    if ((Random32() % BoostedShinyValue) == 0)
+    {
+		IsShiny = TRUE;
+        value = GetTrainerShinyValue();
+
+        do
+        {
+            personality = Random32();
+        }
+        while (
+		(GetNatureFromPersonality(personality) != targetNature)
+		|| (HIHALF(value) ^ LOHALF(value)
+			^ HIHALF(personality) ^ LOHALF(personality)) >= SHINY_ODDS
+		);
+    }
+	else
+    {
+		do
+		{
+			personality = Random32();
+		}
+		while (GetNatureFromPersonality(personality) != targetNature);
+	}
+
+    return personality;
+}
+
 static void CreateInitialRoamerMon(bool16 createLatios)
 {
+	u32 fixedPersonality;
     if (!createLatios)
         ROAMER->species = SPECIES_LATIAS;
     else
         ROAMER->species = SPECIES_LATIOS;
 
-    CreateMon(&gEnemyParty[0], ROAMER->species, 40, USE_RANDOM_IVS, FALSE, 0, OT_ID_PLAYER_ID, 0);
+	fixedPersonality = GenerateCustomPersonality(Random() % NUM_NATURES);
+    CreateMon(&gEnemyParty[0], ROAMER->species, 40, USE_RANDOM_IVS, TRUE, fixedPersonality, OT_ID_PLAYER_ID, 0);
     ROAMER->level = 40;
     ROAMER->status = 0;
     ROAMER->active = TRUE;

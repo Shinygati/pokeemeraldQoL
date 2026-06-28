@@ -204,9 +204,8 @@ void StringParser::RaiseError(const char* format, ...)
 
     std::va_list args;
     va_start(args, format);
-    int n = std::vsnprintf(buffer, bufferSize, format, args);
+    std::vsnprintf(buffer, bufferSize, format, args);
     va_end(args);
-    std::snprintf(buffer + n, bufferSize - n, " before '%.10s'", &m_buffer[m_pos]);
 
     throw std::runtime_error(buffer);
 }

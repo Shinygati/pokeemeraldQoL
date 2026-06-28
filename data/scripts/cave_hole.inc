@@ -3,7 +3,7 @@ CaveHole_CheckFallDownHole:
 	.2byte 0
 
 CaveHole_FixCrackedGround:
-#ifdef UBFIX
+#if UBFIX
 	setvar VAR_ICE_STEP_COUNT, 1
 #else
 	copyvar VAR_ICE_STEP_COUNT, 1, warn=FALSE
@@ -29,6 +29,7 @@ EventScript_FallDownHoleMtPyre::
 	playse SE_FALL
 	delay 60
 	special DoFallWarp
+	waitstate
 	end
 
 Movement_SetInvisible:

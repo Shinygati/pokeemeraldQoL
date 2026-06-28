@@ -2208,7 +2208,7 @@ u8 GetObjectEventIdByPosition(u16 x, u16 y, u8 elevation)
 
 static bool8 ObjectEventDoesElevationMatch(struct ObjectEvent *objectEvent, u8 elevation)
 {
-    if (objectEvent->currentElevation != ELEVATION_TRANSITION && elevation != ELEVATION_TRANSITION && objectEvent->currentElevation != elevation)
+    if (objectEvent->currentElevation != 0 && elevation != 0 && objectEvent->currentElevation != elevation)
         return FALSE;
 
     return TRUE;
@@ -7708,12 +7708,12 @@ static bool8 IsElevationMismatchAt(u8 elevation, s16 x, s16 y)
 {
     u8 mapElevation;
 
-    if (elevation == ELEVATION_TRANSITION)
+    if (elevation == 0)
         return FALSE;
 
     mapElevation = MapGridGetElevationAt(x, y);
 
-    if (mapElevation == ELEVATION_TRANSITION || mapElevation == ELEVATION_MULTI_LEVEL)
+    if (mapElevation == 0 || mapElevation == 15)
         return FALSE;
 
     if (mapElevation != elevation)
@@ -7761,21 +7761,23 @@ void ObjectEventUpdateElevation(struct ObjectEvent *objEvent)
     u8 curElevation = MapGridGetElevationAt(objEvent->currentCoords.x, objEvent->currentCoords.y);
     u8 prevElevation = MapGridGetElevationAt(objEvent->previousCoords.x, objEvent->previousCoords.y);
 
-    if (curElevation == ELEVATION_MULTI_LEVEL || prevElevation == ELEVATION_MULTI_LEVEL)
+    if (curElevation == 15 || prevElevation == 15)
         return;
 
     objEvent->currentElevation = curElevation;
 
-    if (curElevation != ELEVATION_TRANSITION && curElevation != ELEVATION_MULTI_LEVEL)
+    if (curElevation != 0 && curElevation != 15)
         objEvent->previousElevation = curElevation;
 }
 
 void SetObjectSubpriorityByElevation(u8 elevation, struct Sprite *sprite, u8 subpriority)
 {
-    u16 y = (sprite->y - sprite->centerToCornerVecY + gSpriteCoordOffsetY + 8) & 0xFF;
-    y = (16 - (y >> 4)) << 1;
-
-    sprite->subpriority = sElevationToSubpriority[elevation] + y + subpriority;
+    s32 tmp = sprite->centerToCornerVecY;
+    u32 tmpa = *(u16 *)&sprite->y;
+    u32 tmpb = *(u16 *)&gSpriteCoordOffsetY;
+    s32 tmp2 = (tmpa - tmp) + tmpb;
+    u16 tmp3 = (16 - ((((u32)tmp2 + 8) & 0xFF) >> 4)) * 2;
+    sprite->subpriority = tmp3 + sElevationToSubpriority[elevation] + subpriority;
 }
 
 static void ObjectEventUpdateSubpriority(struct ObjectEvent *objEvent, struct Sprite *sprite)
@@ -7788,7 +7790,7 @@ static void ObjectEventUpdateSubpriority(struct ObjectEvent *objEvent, struct Sp
 
 static bool8 AreElevationsCompatible(u8 a, u8 b)
 {
-    if (a == ELEVATION_TRANSITION || b == ELEVATION_TRANSITION)
+    if (a == 0 || b == 0)
         return TRUE;
 
     if (a != b)

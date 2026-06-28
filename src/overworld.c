@@ -66,6 +66,8 @@
 #include "constants/songs.h"
 #include "constants/trainer_hill.h"
 #include "constants/weather.h"
+#include "item.h"
+#include "constants/items.h"
 
 struct CableClubPlayer
 {
@@ -94,6 +96,7 @@ struct CableClubPlayer
 
 extern const struct MapLayout *const gMapLayouts[];
 extern const struct MapHeader *const *const gMapGroups[];
+extern u32 RtcGetLocalDayCount(void);
 
 static void Overworld_ResetStateAfterWhiteOut(void);
 static void CB2_ReturnToFieldLocal(void);
@@ -131,7 +134,7 @@ static void UpdateAllLinkPlayers(u16 *, s32);
 static u8 FlipVerticalAndClearForced(u8, u8);
 static u8 LinkPlayerGetCollision(u8, u8, s16, s16);
 static void CreateLinkPlayerSprite(u8, u8);
-static void GetLinkPlayerCoords(u8, s16 *, s16 *);
+static void GetLinkPlayerCoords(u8, u16 *, u16 *);
 static u8 GetLinkPlayerFacingDirection(u8);
 static u8 GetLinkPlayerElevation(u8);
 static u8 GetLinkPlayerIdAt(s16, s16);
@@ -170,6 +173,9 @@ static void TransitionMapMusic(void);
 static u8 GetAdjustedInitialTransitionFlags(struct InitialPlayerAvatarState *, u16, u8);
 static u8 GetAdjustedInitialDirection(struct InitialPlayerAvatarState *, u8, u16, u8);
 static u16 GetCenterScreenMetatileBehavior(void);
+static bool8 CanLearnFlashInParty(void);
+static u16 sNpcLastDayChecked;
+static u32 sNpcLastDaySaved;
 
 static void *sUnusedOverworldCallback;
 static u8 sPlayerLinkStates[MAX_LINK_PLAYERS];
@@ -964,12 +970,28 @@ bool32 Overworld_IsBikingAllowed(void)
         return TRUE;
 }
 
+static bool8 CanLearnFlashInParty(void)
+{
+    u8 i;
+    for (i = 0; i < PARTY_SIZE; i++)
+    {
+        if (!GetMonData(&gPlayerParty[i], MON_DATA_SPECIES, NULL))
+            break;
+        if (!GetMonData(&gPlayerParty[i], MON_DATA_IS_EGG) && CanMonLearnTMHM(&gPlayerParty[i], ITEM_HM05 - ITEM_TM01))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+
 // Flash level of 0 is fully bright
 // Flash level of 1 is the largest flash radius
 // Flash level of 7 is the smallest flash radius
 // Flash level of 8 is fully black
 void SetDefaultFlashLevel(void)
 {
+	if (CheckBagHasItem(ITEM_HM05 ,1))
+        FlagSet(FLAG_SYS_USE_FLASH);
     if (!gMapHeader.cave)
         gSaveBlock1Ptr->flashLevel = 0;
     else if (FlagGet(FLAG_SYS_USE_FLASH))
@@ -1040,7 +1062,7 @@ static bool16 ShouldLegendaryMusicPlayAtLocation(struct WarpData *warp)
     return FALSE;
 }
 
-static bool16 NoMusicInSootopolisWithLegendaries(struct WarpData *warp)
+static bool16 NoMusicInSotopolisWithLegendaries(struct WarpData *warp)
 {
     if (VarGet(VAR_SKY_PILLAR_STATE) != 1)
         return FALSE;
@@ -1065,7 +1087,7 @@ static bool16 IsInfiltratedWeatherInstitute(struct WarpData *warp)
         return FALSE;
 }
 
-static bool16 IsInfiltratedSpaceCenter(struct WarpData *warp)
+static bool16 IsInflitratedSpaceCenter(struct WarpData *warp)
 {
     if (VarGet(VAR_MOSSDEEP_CITY_STATE) == 0)
         return FALSE;
@@ -1081,11 +1103,11 @@ static bool16 IsInfiltratedSpaceCenter(struct WarpData *warp)
 
 u16 GetLocationMusic(struct WarpData *warp)
 {
-    if (NoMusicInSootopolisWithLegendaries(warp) == TRUE)
+    if (NoMusicInSotopolisWithLegendaries(warp) == TRUE)
         return MUS_NONE;
     else if (ShouldLegendaryMusicPlayAtLocation(warp) == TRUE)
         return MUS_ABNORMAL_WEATHER;
-    else if (IsInfiltratedSpaceCenter(warp) == TRUE)
+    else if (IsInflitratedSpaceCenter(warp) == TRUE)
         return MUS_ENCOUNTER_MAGMA;
     else if (IsInfiltratedWeatherInstitute(warp) == TRUE)
         return MUS_MT_CHIMNEY;
@@ -2080,7 +2102,7 @@ static void ResetScreenForMapLoad(void)
     ScanlineEffect_Stop();
 
     DmaClear16(3, PLTT + 2, PLTT_SIZE - 2);
-    DmaClearLarge16(3, (void *)VRAM, VRAM_SIZE, 0x1000);
+    DmaFillLarge16(3, 0, (void *)VRAM, VRAM_SIZE, 0x1000);
     ResetOamRange(0, 128);
     LoadOam();
 }
@@ -2753,7 +2775,7 @@ static const u8 *TryInteractWithPlayer(struct CableClubPlayer *player)
     otherPlayerPos = player->pos;
     otherPlayerPos.x += gDirectionToVectors[player->facing].x;
     otherPlayerPos.y += gDirectionToVectors[player->facing].y;
-    otherPlayerPos.elevation = ELEVATION_TRANSITION;
+    otherPlayerPos.elevation = 0;
     linkPlayerId = GetLinkPlayerIdAt(otherPlayerPos.x, otherPlayerPos.y);
 
     if (linkPlayerId != MAX_LINK_PLAYERS)
@@ -2995,7 +3017,7 @@ static u8 GetSpriteForLinkedPlayer(u8 linkPlayerId)
     return objEvent->spriteId;
 }
 
-static void GetLinkPlayerCoords(u8 linkPlayerId, s16 *x, s16 *y)
+static void GetLinkPlayerCoords(u8 linkPlayerId, u16 *x, u16 *y)
 {
     u8 objEventId = gLinkPlayerObjectEvents[linkPlayerId].objEventId;
     struct ObjectEvent *objEvent = &gObjectEvents[objEventId];
@@ -3017,7 +3039,7 @@ static u8 GetLinkPlayerElevation(u8 linkPlayerId)
     return objEvent->currentElevation;
 }
 
-static s16 UNUSED GetLinkPlayerObjectStepTimer(u8 linkPlayerId)
+static s32 UNUSED GetLinkPlayerObjectStepTimer(u8 linkPlayerId)
 {
     u8 objEventId = gLinkPlayerObjectEvents[linkPlayerId].objEventId;
     struct ObjectEvent *objEvent = &gObjectEvents[objEventId];
@@ -3046,18 +3068,26 @@ static void SetPlayerFacingDirection(u8 linkPlayerId, u8 facing)
     u8 objEventId = linkPlayerObjEvent->objEventId;
     struct ObjectEvent *objEvent = &gObjectEvents[objEventId];
 
-    if (!linkPlayerObjEvent->active)
-        return;
-
-    if (facing > FACING_FORCED_RIGHT)
+    if (linkPlayerObjEvent->active)
     {
-        objEvent->triggerGroundEffectsOnMove = TRUE;
-        return;
-    }
+        if (facing > FACING_FORCED_RIGHT)
+        {
+            objEvent->triggerGroundEffectsOnMove = TRUE;
+        }
+        else
+        {
+            // This is a hack to split this code onto two separate lines, without declaring a local variable.
+            // C++ style inline variables would be nice here.
+            #define TEMP sLinkPlayerMovementModes[linkPlayerObjEvent->movementMode](linkPlayerObjEvent, objEvent, facing)
 
-    sMovementStatusHandler[sLinkPlayerMovementModes[linkPlayerObjEvent->movementMode](
-        linkPlayerObjEvent, objEvent, facing)](linkPlayerObjEvent, objEvent);
+            sMovementStatusHandler[TEMP](linkPlayerObjEvent, objEvent);
+
+            // Clean up the hack.
+            #undef TEMP
+        }
+    }
 }
+
 
 static u8 MovementEventModeCB_Normal(struct LinkPlayerObjectEvent *linkPlayerObjEvent, struct ObjectEvent *objEvent, u8 dir)
 {

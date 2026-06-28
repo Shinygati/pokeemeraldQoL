@@ -6,8 +6,6 @@
 #include "pokemon_size_record.h"
 #include "string_util.h"
 #include "text.h"
-#include "constants/party_menu.h"
-#include "constants/pokemon_size_record.h"
 
 #define DEFAULT_MAX_SIZE 0x8000 // was 0x8100 in Ruby/Sapphire
 
@@ -36,6 +34,14 @@ static const struct UnknownStruct sBigMonSizeTable[] =
     { 1500,   2,   -326 },
     { 1600,   1,   -126 },
     { 1700,   1,   -26 },
+};
+
+// - 4 for unused gift ribbon bits in MON_DATA_UNUSED_RIBBONS
+static const u8 sGiftRibbonsMonDataIds[GIFT_RIBBONS_COUNT - 4] =
+{
+    MON_DATA_MARINE_RIBBON, MON_DATA_LAND_RIBBON, MON_DATA_SKY_RIBBON,
+    MON_DATA_COUNTRY_RIBBON, MON_DATA_NATIONAL_RIBBON, MON_DATA_EARTH_RIBBON,
+    MON_DATA_WORLD_RIBBON
 };
 
 extern const u8 gText_DecimalPoint[];
@@ -101,9 +107,9 @@ static void FormatMonSizeRecord(u8 *string, u32 size)
 
 static u8 CompareMonSize(u16 species, u16 *sizeRecord)
 {
-    if (gSpecialVar_Result == PARTY_NOTHING_CHOSEN)
+    if (gSpecialVar_Result == 0xFF)
     {
-        return COMPARE_SIZE_NONE;
+        return 0;
     }
     else
     {
@@ -111,7 +117,7 @@ static u8 CompareMonSize(u16 species, u16 *sizeRecord)
 
         if (GetMonData(pkmn, MON_DATA_IS_EGG) == TRUE || GetMonData(pkmn, MON_DATA_SPECIES) != species)
         {
-            return COMPARE_SIZE_INCORRECT_SPECIES;
+            return 1;
         }
         else
         {
@@ -125,12 +131,12 @@ static u8 CompareMonSize(u16 species, u16 *sizeRecord)
             FormatMonSizeRecord(gStringVar2, newSize);
             if (newSize <= oldSize)
             {
-                return COMPARE_SIZE_SMALLER;
+                return 2;
             }
             else
             {
                 *sizeRecord = sizeParams;
-                return COMPARE_SIZE_LARGER;
+                return 3;
             }
         }
     }
@@ -185,4 +191,30 @@ void CompareLotadSize(void)
     u16 *sizeRecord = GetVarPointer(VAR_LOTAD_SIZE_RECORD);
 
     gSpecialVar_Result = CompareMonSize(SPECIES_LOTAD, sizeRecord);
+}
+
+void GiveGiftRibbonToParty(u8 index, u8 ribbonId)
+{
+    s32 i;
+    bool32 gotRibbon = FALSE;
+    u8 data = 1;
+    u8 array[ARRAY_COUNT(sGiftRibbonsMonDataIds)];
+    memcpy(array, sGiftRibbonsMonDataIds, sizeof(sGiftRibbonsMonDataIds));
+
+    if (index < GIFT_RIBBONS_COUNT && ribbonId <= MAX_GIFT_RIBBON)
+    {
+        gSaveBlock1Ptr->giftRibbons[index] = ribbonId;
+        for (i = 0; i < PARTY_SIZE; i++)
+        {
+            struct Pokemon *mon = &gPlayerParty[i];
+
+            if (GetMonData(mon, MON_DATA_SPECIES) != 0 && GetMonData(mon, MON_DATA_SANITY_IS_EGG) == 0)
+            {
+                SetMonData(mon, array[index], &data);
+                gotRibbon = TRUE;
+            }
+        }
+        if (gotRibbon)
+            FlagSet(FLAG_SYS_RIBBON_GET);
+    }
 }

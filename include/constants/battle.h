@@ -109,8 +109,8 @@ enum BattlerId
 #define B_OUTCOME_MON_TELEPORTED       10
 #define B_OUTCOME_LINK_BATTLE_RAN      (1 << 7) // 128
 
-// Non-volatile status conditions select from gBattleMons[n].status1, which is a u32.
-// These persist outside of battle and after switching out.
+// Non-volatile status conditions
+// These persist remain outside of battle and after switching out
 #define STATUS1_NONE             0
 #define STATUS1_SLEEP            (1 << 0 | 1 << 1 | 1 << 2) // First 3 bits (Number of turns to sleep)
 #define STATUS1_SLEEP_TURN(num)  ((num) << 0) // Just for readability (or if rearranging statuses)
@@ -124,8 +124,8 @@ enum BattlerId
 #define STATUS1_PSN_ANY          (STATUS1_POISON | STATUS1_TOXIC_POISON)
 #define STATUS1_ANY              (STATUS1_SLEEP | STATUS1_POISON | STATUS1_BURN | STATUS1_FREEZE | STATUS1_PARALYSIS | STATUS1_TOXIC_POISON)
 
-// Volatile status conditions select from gBattleMons[n].status2, which is a u32.
-// They are removed after exiting the battle or switching out.
+// Volatile status ailments
+// These are removed after exiting the battle or switching out
 #define STATUS2_CONFUSION             (1 << 0 | 1 << 1 | 1 << 2)
 #define STATUS2_CONFUSION_TURN(num)   ((num) << 0)
 #define STATUS2_FLINCHED              (1 << 3)
@@ -154,7 +154,7 @@ enum BattlerId
 #define STATUS2_DEFENSE_CURL          (1 << 30)
 #define STATUS2_TORMENT               (1 << 31)
 
-// These select from gStatuses3[n], which is a u32.
+// Seems like per-battler statuses. Not quite sure how to categorize these
 #define STATUS3_LEECHSEED_BATTLER       (1 << 0 | 1 << 1) // The battler to receive HP from Leech Seed
 #define STATUS3_LEECHSEED               (1 << 2)
 #define STATUS3_ALWAYS_HITS             (1 << 3 | 1 << 4)
@@ -188,7 +188,7 @@ enum BattlerId
 #define HITMARKER_NO_PPDEDUCT           (1 << 11)
 #define HITMARKER_SWAP_ATTACKER_TARGET  (1 << 12)
 #define HITMARKER_STATUS_ABILITY_EFFECT (1 << 13)
-#define HITMARKER_SYNCHRONIZE_EFFECT    (1 << 14)
+#define HITMARKER_SYNCHRONISE_EFFECT    (1 << 14)
 #define HITMARKER_RUN                   (1 << 15)
 #define HITMARKER_IGNORE_ON_AIR         (1 << 16)
 #define HITMARKER_IGNORE_UNDERGROUND    (1 << 17)
@@ -199,14 +199,13 @@ enum BattlerId
 #define HITMARKER_PLAYER_FAINTED        (1 << 22)
 #define HITMARKER_ALLOW_NO_PP           (1 << 23)
 #define HITMARKER_GRUDGE                (1 << 24)
-#define HITMARKER_OBEYS                 (1 << 25) // Set after obedience check has been performed
+#define HITMARKER_OBEYS                 (1 << 25)
 #define HITMARKER_NEVER_SET             (1 << 26) // Cleared as part of a large group. Never set or checked
 #define HITMARKER_CHARGING              (1 << 27)
 #define HITMARKER_FAINTED(battler)      (gBitTable[battler] << 28)
 #define HITMARKER_FAINTED2(battler)     ((1 << 28) << battler)
 
-// Per-side statuses that affect an entire party.
-// These select from gSideStatuses[n], which is a u16.
+// Per-side statuses that affect an entire party
 #define SIDE_STATUS_REFLECT          (1 << 0)
 #define SIDE_STATUS_LIGHTSCREEN      (1 << 1)
 #define SIDE_STATUS_X4               (1 << 2)
@@ -227,8 +226,7 @@ enum BattlerId
 #define MOVE_RESULT_FOE_HUNG_ON        (1 << 7)
 #define MOVE_RESULT_NO_EFFECT          (MOVE_RESULT_MISSED | MOVE_RESULT_DOESNT_AFFECT_FOE | MOVE_RESULT_FAILED)
 
-// Battle weather flags.
-// These select from gBattleWeather, which is a u16.
+// Battle Weather flags
 #define B_WEATHER_RAIN_TEMPORARY      (1 << 0)
 #define B_WEATHER_RAIN_DOWNPOUR       (1 << 1)  // unused
 #define B_WEATHER_RAIN_PERMANENT      (1 << 2)
@@ -352,7 +350,7 @@ enum BattlerId
 #define B_WIN_MOVE_NAME_3         5 // Bottom left
 #define B_WIN_MOVE_NAME_4         6 // Bottom right
 #define B_WIN_PP                  7
-#define B_WIN_DUMMY               8
+#define B_WIN_PSS_ICON            8
 #define B_WIN_PP_REMAINING        9
 #define B_WIN_MOVE_TYPE          10
 #define B_WIN_SWITCH_PROMPT      11 // "Switch which?"
