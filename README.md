@@ -54,5 +54,3 @@ Pokémon summary screen can now show both IV and EV stats.\
 PokéNav can be used to access PC boxes as long as you're not inside a cave or building.\
 Pressing R in the start menu will prompt you to save.\
 The save overwrite confirmation screen has been removed.
-
-Special thanks to everyone who worked on the decompilation project and for the guides/tutorials that allowed me to add most of these new features.
