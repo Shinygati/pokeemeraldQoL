@@ -1285,9 +1285,7 @@ static s32 HideGameDisplay(void)
             return 0;
         // fall through
         // This will call BeginNormalPaletteFade() twice.
-#ifdef BUGFIX
         break;
-#endif
     case 2:
         BeginNormalPaletteFade(PALETTES_ALL, 0, 0, 16, RGB_BLACK);
         UpdatePaletteFade();

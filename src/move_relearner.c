@@ -24,6 +24,7 @@
 #include "task.h"
 #include "constants/rgb.h"
 #include "constants/songs.h"
+#include "party_menu.h"
 
 /*
  * Move relearner state machine
@@ -679,6 +680,7 @@ static void DoMoveRelearnerMain(void)
         if (!gPaletteFade.active)
         {
             FreeMoveRelearnerResources();
+            if (FlagGet(FLAG_TEMP_1)) { CB2_ReturnToPartyMenuFromSummaryScreen(); break;}
             SetMainCallback2(CB2_ReturnToField);
         }
         break;

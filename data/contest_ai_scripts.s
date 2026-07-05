@@ -436,11 +436,7 @@ AI_CGM_BetterWhenAudienceExcited:
 AI_CGM_BetterWhenAudienceExcited_1stUp:
 	@ BUG: Should be if_appeal_num_eq 0
 	@ 1st up on 1st appeal excitement will always be 0
-#ifdef BUGFIX
 	if_appeal_num_eq 0, AI_CGM_BetterWhenAudienceExcited_1stAppeal
-#else
-	if_appeal_num_not_eq 0, AI_CGM_BetterWhenAudienceExcited_1stAppeal
-#endif
 	if_excitement_eq 4, AI_CGM_BetterWhenAudienceExcited_1AwayFromMax
 	if_excitement_eq 3, AI_CGM_BetterWhenAudienceExcited_2AwayFromMax
 	end

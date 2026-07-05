@@ -196,11 +196,7 @@ u16 ChooseMoveAndTargetInBattlePalace(void)
                 numMultipleMoveGroups++;
             if ((numMovesPerGroup & (0xF << 4)) >= (2 << 4))
                 numMultipleMoveGroups++;
-#ifdef BUGFIX
             if ((numMovesPerGroup & (0xF << 8)) >= (2 << 8))
-#else
-            if ((numMovesPerGroup & (0xF << 4)) >= (2 << 8))
-#endif
                 numMultipleMoveGroups++;
 
 

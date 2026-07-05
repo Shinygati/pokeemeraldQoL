@@ -2249,9 +2249,7 @@ static bool32 AllPlayersReadyToStart(void)
 
     numPlayers = numPlayers; // Needed to force compiler to keep loop below
 
-#ifdef BUGFIX
     i = 1; // i isn't reset, loop below never runs. As a result, game can begin before all players ready
-#endif
     for (; i < numPlayers; i++)
     {
         if (sGame->readyToStart[i] == FALSE)
