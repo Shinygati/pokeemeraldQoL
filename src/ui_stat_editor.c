@@ -506,7 +506,7 @@ static void SampleUi_DrawMonIcon(u16 dexNum)
 static u8 CreateSelector()
 {
     if (sStatEditorDataPtr->selectorSpriteId == 0xFF)
-        sStatEditorDataPtr->selectorSpriteId = CreateSprite(&sSpriteTemplate_Selector, 188, 30, 0);
+        sStatEditorDataPtr->selectorSpriteId = CreateSprite(&sSpriteTemplate_Selector, 188, 50, 0);
 
     gSprites[sStatEditorDataPtr->selectorSpriteId].invisible = FALSE;
     StartSpriteAnim(&gSprites[sStatEditorDataPtr->selectorSpriteId], 0);
@@ -523,7 +523,6 @@ static void DestroySelector()
 
 #define DISTANCE_BETWEEN_STATS_Y 16
 #define SECOND_COLUMN ((8 * 4))
-#define THIRD_COLUMN ((8 * 8))
 #define STARTING_X 60
 #define STARTING_Y 26
 
@@ -717,22 +716,22 @@ struct SpriteCordsStruct {
 
 static void SelectorCallback(struct Sprite *sprite)
 {
-    struct SpriteCordsStruct spriteCords[6][2] = {
-        {{188, 30 + 20}, {220, 30 + 20}},
-        {{188, 46 + 20}, {220, 46 + 20}},
-        {{188, 62 + 20}, {220, 62 + 20}},
-        {{188, 78 + 20}, {220, 78 + 20}},
-        {{188, 94 + 20}, {220, 94 + 20}},
-        {{188, 110 + 20}, {220, 110 + 20}}, // Thanks Jaizu
+    static const struct SpriteCordsStruct spriteCords[6] = {
+        {188, 50},
+        {188, 66},
+        {188, 82},
+        {188, 98},
+        {188, 114},
+        {188, 130},
     };
 
-    if(sStatEditorDataPtr->inputMode == INPUT_EDIT_STAT)
+    if (sStatEditorDataPtr->inputMode == INPUT_EDIT_STAT)
     {
-        if(sprite->data[0] == 32)
+        if (sprite->data[0] == 32)
         {
             sprite->invisible = TRUE;
         }
-        if(sprite->data[0] >= 48)
+        if (sprite->data[0] >= 48)
         {
             sprite->invisible = FALSE;
             sprite->data[0] = 0;
@@ -745,10 +744,14 @@ static void SelectorCallback(struct Sprite *sprite)
         sprite->data[0] = 0;
     }
 
-    sStatEditorDataPtr->selectedStat = sStatEditorDataPtr->selector_x + (sStatEditorDataPtr->selector_y * 2);
+    // EV-only: selector_x is always 0.
+    sStatEditorDataPtr->selector_x = 0;
 
-    sprite->x = spriteCords[sStatEditorDataPtr->selector_y][sStatEditorDataPtr->selector_x].x;
-    sprite->y = spriteCords[sStatEditorDataPtr->selector_y][sStatEditorDataPtr->selector_x].y;
+    // There is only one selectable column now.
+    sStatEditorDataPtr->selectedStat = sStatEditorDataPtr->selector_y;
+
+    sprite->x = spriteCords[sStatEditorDataPtr->selector_y].x;
+    sprite->y = spriteCords[sStatEditorDataPtr->selector_y].y;
 
     DebugPrintf("%d", sStatEditorDataPtr->selectedStat);
 }
@@ -796,8 +799,6 @@ static void Task_StatEditorMain(u8 taskId) // input control when first loaded in
             StartSpriteAnim(&gSprites[sStatEditorDataPtr->selectorSpriteId], 1);
         if((sStatEditorDataPtr->editingStat == 255 || (sStatEditorDataPtr->evTotal == 510)) && (sStatEditorDataPtr->selector_x == 0))
             StartSpriteAnim(&gSprites[sStatEditorDataPtr->selectorSpriteId], 2);
-        if((sStatEditorDataPtr->editingStat == 31) && (sStatEditorDataPtr->selector_x == 1))
-            StartSpriteAnim(&gSprites[sStatEditorDataPtr->selectorSpriteId], 2);
         return;
     }
     if (JOY_NEW(L_BUTTON))
@@ -827,13 +828,6 @@ static void Task_StatEditorMain(u8 taskId) // input control when first loaded in
         PlaySE(SE_PC_OFF);
         BeginNormalPaletteFade(0xFFFFFFFF, 0, 0, 16, RGB_BLACK);
         gTasks[taskId].func = Task_StatEditorTurnOff;
-    }
-    if (JOY_NEW(DPAD_LEFT) || JOY_NEW(DPAD_RIGHT))
-    {
-        if(sStatEditorDataPtr->selector_x == 0)
-            sStatEditorDataPtr->selector_x = 1;
-        else
-            sStatEditorDataPtr->selector_x = 0; 
     }
     if (JOY_NEW(DPAD_UP))
     {
@@ -976,7 +970,7 @@ static void HandleEditingStatInput(u32 input)
 
 static void Task_MenuEditingStat(u8 taskId) // This function should be refactored to not be a hot mess
 {
-    if (JOY_NEW(B_BUTTON))
+    if (JOY_NEW(A_BUTTON) || (JOY_NEW(B_BUTTON)))
     {
         gTasks[taskId].func = Task_StatEditorMain;
         StartSpriteAnim(&gSprites[sStatEditorDataPtr->selectorSpriteId], 0);
