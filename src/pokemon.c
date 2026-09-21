@@ -2402,7 +2402,7 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
 	}
     else
 	{
-		personality = RollShinyPersonalityChance (GetNatureFromPersonality (fixedPersonality), FALSE);
+		if (FlagGet (0x04B) && FlagGet (0x04C))
 		{
 			personality = RollShinyPersonalityChance (Random() % 24, TRUE);
 		}
