@@ -2323,7 +2323,7 @@ static u32 RollShinyPersonalityChance(u8 targetNature, u8 ForceShiny)
     }
     else
     {
-        BoostedShinyValue = 4096 - AdditionalShinyValue;
+        BoostedShinyValue = 512 - AdditionalShinyValue;
     }
 	if (ForceShiny)
 	{
@@ -2402,7 +2402,7 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
 	}
     else
 	{
-		if (FlagGet (0x04B) && FlagGet (0x04C))
+		personality = RollShinyPersonalityChance (GetNatureFromPersonality (fixedPersonality), FALSE);
 		{
 			personality = RollShinyPersonalityChance (Random() % 24, TRUE);
 		}
