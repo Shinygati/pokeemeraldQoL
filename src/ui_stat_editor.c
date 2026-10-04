@@ -883,7 +883,7 @@ static void ChangeAndUpdateStat()
 #define EDIT_INPUT_MAX_DECREASE_STATE       3
 
 #define STAT_MINIMUM          0  
-#define EV_MAX_SINGLE_STAT    MAX_PER_STAT_EVS
+#define EV_MAX_SINGLE_STAT    252
 #define EV_MAX_TOTAL          MAX_TOTAL_EVS
                 
 #define EDITING_EVS     0
