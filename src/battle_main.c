@@ -2696,11 +2696,17 @@ static void SpriteCB_WildMonShowHealthbox(struct Sprite *sprite)
     }
 }
 
+
 static void SpriteCB_WildMonAnimate(struct Sprite *sprite)
 {
     if (!gPaletteFade.active)
     {
         BattleAnimateFrontSprite(sprite, sprite->sSpeciesId, FALSE, 1);
+
+        if (!(gBattleTypeFlags & BATTLE_TYPE_TRAINER)
+    && GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(sprite->sBattler)]],
+                  MON_DATA_SPECIES, NULL) == GetShinyChainSpecies())
+    UpdateShinyChainCounter();
     }
 }
 

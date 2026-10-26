@@ -363,6 +363,8 @@ static void (*const sMovementStatusHandler[])(struct LinkPlayerObjectEvent *, st
 // code
 void DoWhiteOut(void)
 {
+	ResetShinyChain();
+	
     RunScriptImmediately(EventScript_WhiteOut);
     SetMoney(&gSaveBlock1Ptr->money, GetMoney(&gSaveBlock1Ptr->money) / 2);
     HealPlayerParty();
@@ -543,8 +545,15 @@ const struct MapLayout *GetMapLayout(void)
     return NULL;
 }
 
+
 void ApplyCurrentWarp(void)
 {
+    if (gSaveBlock1Ptr->location.mapGroup != sWarpDestination.mapGroup
+        || gSaveBlock1Ptr->location.mapNum != sWarpDestination.mapNum)
+    {
+        ResetShinyChain();
+    }
+
     gLastUsedWarp = gSaveBlock1Ptr->location;
     gSaveBlock1Ptr->location = sWarpDestination;
     sFixedDiveWarp = sDummyWarpData;
@@ -1466,6 +1475,15 @@ static void DoCB1_Overworld(u16 newKeys, u16 heldKeys)
     FieldGetPlayerInput(&inputStruct, newKeys, heldKeys);
     if (!ArePlayerFieldControlsLocked())
     {
+        // Got HM05 while already inside a dark cave: light it up straight away
+        // (entering a dark map with HM05 in the bag is handled by SetDefaultFlashLevel)
+        if (gMapHeader.cave == TRUE && !FlagGet(FLAG_SYS_USE_FLASH) && CheckBagHasItem(ITEM_HM05, 1))
+        {
+            PlaySE(SE_M_REFLECT);
+            FlagSet(FLAG_SYS_USE_FLASH);
+            ScriptContext_SetupScript(EventScript_UseFlash);
+            return;
+        }
         if (ProcessPlayerFieldInput(&inputStruct) == 1)
         {
             LockPlayerFieldControls();

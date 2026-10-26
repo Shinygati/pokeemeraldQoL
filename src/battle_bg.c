@@ -378,6 +378,15 @@ static const struct WindowTemplate sStandardBattleWindowTemplates[] =
         .paletteNum = 0,
         .baseBlock = 0x00b0,
     },
+    [B_WIN_SHINY_CHAIN] = {
+        .bg = 0,
+        .tilemapLeft = 19,
+        .tilemapTop = 2,
+        .width = 7,
+        .height = 2,
+        .paletteNum = 0,
+        .baseBlock = 0x0340,
+    },
     DUMMY_WIN_TEMPLATE
 };
 
@@ -727,6 +736,7 @@ void BattleInitBgsAndWindows(void)
     }
 
     InitWindows(gBattleWindowTemplates[gBattleScripting.windowsType]);
+    ResetShinyChainCounterDisplay();
     DeactivateAllTextPrinters();
 }
 

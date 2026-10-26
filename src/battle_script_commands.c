@@ -3303,7 +3303,13 @@ static void Cmd_getexp(void)
                     holdEffect = GetItemHoldEffect(item);
             }
 
-            calculatedExp = gSpeciesInfo[gBattleMons[gBattlerFainted].species].expYield * gBattleMons[gBattlerFainted].level / 7;
+                        calculatedExp = gSpeciesInfo[gBattleMons[gBattlerFainted].species].expYield * gBattleMons[gBattlerFainted].level / 7;
+
+            // 1.2x experience by default; 2x after clearing the game.
+            if (FlagGet(FLAG_SYS_GAME_CLEAR))
+                calculatedExp *= 2;
+            else
+                calculatedExp = calculatedExp * 6 / 5;
 
             if (gSaveBlock2Ptr->expShare) // exp share is turned on
             {
@@ -10071,6 +10077,13 @@ static void Cmd_givecaughtmon(void)
             gBattleCommunication[MULTISTRING_CHOOSER]++;
     }
 
+	UpdateShinyChain(GetMonData(
+        &gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]],
+        MON_DATA_SPECIES,
+        NULL));
+
+    UpdateShinyChainCounter();
+	
     gBattleResults.caughtMonSpecies = GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]], MON_DATA_SPECIES, NULL);
     GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]], MON_DATA_NICKNAME, gBattleResults.caughtMonNick);
     gBattleResults.caughtMonBall = GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]], MON_DATA_POKEBALL, NULL);

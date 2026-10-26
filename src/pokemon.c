@@ -49,6 +49,7 @@
 #include "constants/union_room.h"
 #include "wild_encounter.h"
 #include "roamer.h"
+#include "constants/daycare.h"
 
 #define DAY_EVO_HOUR_BEGIN       12
 #define DAY_EVO_HOUR_END         HOURS_PER_DAY
@@ -82,6 +83,9 @@ static u32 LatiosIVs;
 static u32 CustomFixedIV;
 static u32 ivValue1;
 static u32 ivValue2;
+static u16 sLastCaughtSpecies;
+static u16 sShinyChainCount;
+extern const u16 gEggMoves[];
 
 EWRAM_DATA static u8 sLearningMoveTableID = 0;
 EWRAM_DATA u8 gPlayerPartyCount = 0;
@@ -2284,85 +2288,209 @@ static u32 GetTrainerShinyValue(void)
   
 }
 
-static u32 RollShinyPersonalityChance(u8 targetNature, u8 ForceShiny)
+void ResetShinyChain(void)
+{
+    sLastCaughtSpecies = 0;
+    sShinyChainCount = 0;
+}
+
+
+void UpdateShinyChain(u16 species)
+{
+    if (species == SPECIES_NONE)
+        return;
+
+    if (sLastCaughtSpecies == 0)
+    {
+        sLastCaughtSpecies = species;
+        sShinyChainCount = 1;
+    }
+    else if (species != sLastCaughtSpecies)
+    {
+        ResetShinyChain();
+    }
+    else if (sShinyChainCount < 80)
+    {
+        sShinyChainCount++;
+    }
+}
+
+u16 GetShinyChainCount(void)
+{
+    return sShinyChainCount;
+}
+
+u16 GetShinyChainSpecies(void)
+{
+    return sLastCaughtSpecies;
+}
+
+// ---- BEGIN SHINY_PID ----
+// Gen 3 PKHeX legality needs PID low, PID high, IV1, IV2 to be four consecutive
+// outputs of the game's LCRNG (Method 1). To guarantee a shiny with a given
+// nature without a ~200,000 iteration rejection loop, the PID is built
+// directly and the LCRNG state that produces it is solved for afterwards.
+#define LCRNG_MULT      0x41C64E6Du
+#define LCRNG_ADD       0x00006073u
+#define LCRNG_INV_MULT  0xEEB9EB65u // inverse of LCRNG_MULT mod 2^32
+#define LCRNG_INV_ADD   0x0A3561A1u // reverse step: s0 = INV_MULT * s1 + INV_ADD
+#define SHINY_BUILD_ATTEMPTS 4096
+
+// Finds a state S such that two consecutive Random() calls from S return
+// (pid & 0xFFFF) and then (pid >> 16). Roughly 63% of PIDs have a solution.
+static bool32 FindSeedForPid(u32 pid, u32 *seed)
+{
+    u32 lo = pid & 0xFFFF;
+    u32 target = pid & 0xFFFF0000;
+    // s1 = (lo << 16) | k, s2 = MULT * s1 + ADD; s2 advances by MULT per k.
+    u32 t = LCRNG_MULT * (lo << 16) + LCRNG_ADD;
+    u32 k;
+
+    for (k = 0; k < 0x10000; k++, t += LCRNG_MULT)
+    {
+        if (((t - target) >> 16) == 0) // high 16 bits of s2 == pid high half
+        {
+            u32 s1 = (lo << 16) | k;
+            *seed = LCRNG_INV_MULT * s1 + LCRNG_INV_ADD;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static bool32 PidMatchesTraits(u32 pid, u16 species, u8 nature, bool32 keepTraits, u8 gender, u8 unownLetter)
+{
+    if (GetNatureFromPersonality(pid) != nature)
+        return FALSE;
+    if (keepTraits)
+    {
+        if (GetGenderFromSpeciesAndPersonality(species, pid) != gender)
+            return FALSE;
+        if (species == SPECIES_UNOWN && GET_UNOWN_LETTER(pid) != unownLetter)
+            return FALSE;
+    }
+    return TRUE;
+}
+
+// Always leaves ivValue1/ivValue2 as the two Random() calls that directly follow
+// the PID halves. Advances gRngValue; the caller restores it.
+static u32 BuildPidAndIvs(u16 species, u8 nature, bool32 needShiny, u32 shinyValue,
+                          bool32 keepTraits, u8 gender, u8 unownLetter)
+{
+    u32 pid, lo, hi, seed, tries, d, dStart;
+    u32 shinyXor = HIHALF(shinyValue) ^ LOHALF(shinyValue);
+
+    if (needShiny)
+    {
+        for (tries = 0; tries < SHINY_BUILD_ATTEMPTS; tries++)
+        {
+            lo = Random();
+            dStart = Random() % SHINY_ODDS;
+            for (d = 0; d < SHINY_ODDS; d++)
+            {
+                // shiny <=> shinyXor ^ hi ^ lo < SHINY_ODDS
+                hi = shinyXor ^ lo ^ ((dStart + d) % SHINY_ODDS);
+                pid = (hi << 16) | lo;
+                if (PidMatchesTraits(pid, species, nature, keepTraits, gender, unownLetter)
+                    && FindSeedForPid(pid, &seed))
+                {
+                    gRngValue = seed;
+                    Random();               // pid low half
+                    Random();               // pid high half
+                    ivValue1 = Random();
+                    ivValue2 = Random();
+                    return pid;
+                }
+            }
+        }
+        // Practically unreachable. Fall through to a normal (legal) roll.
+    }
+
+    tries = 0;
+    do
+    {
+        lo = Random();
+        hi = Random();
+        pid = (hi << 16) | lo;
+        tries++;
+    }
+    while (!PidMatchesTraits(pid, species, nature, keepTraits, gender, unownLetter) && tries < 0x10000);
+
+    ivValue1 = Random();
+    ivValue2 = Random();
+    return pid;
+}
+// ---- END SHINY_PID ----
+
+static u32 RollShinyPersonalityChance(u16 species, u8 targetNature, u8 ForceShiny, bool32 keepTraits, u32 traitsPersonality)
 {
     u32 personality;
-    u32 value;
     u32 BoostedShinyValue;
-	u8 IsShiny = FALSE;
-	u32 Tmp_RNG;
-	u8 PIDNature;
-	u32 AdditionalShinyValue = 0;
-	
-	Tmp_RNG = gRngValue;
-	
-	if (FlagGet(0x037))
-	{
-		if (IsPokedexComplete())
-		{
-			AdditionalShinyValue = 682;
-		}
-		else
-		{
-			AdditionalShinyValue = 1000;
-		}
-	}
-	
-	if (!GetMonData(&gPlayerParty[0], MON_DATA_SANITY_IS_EGG)
-        && GetMonAbility(&gPlayerParty[0]) == ABILITY_SYNCHRONIZE)
-	{
-        PIDNature = GetMonData(&gPlayerParty[0], MON_DATA_PERSONALITY) % NUM_NATURES;
-    }
-	else
-	{
-		PIDNature = targetNature;
-    }
-    if (IsPokedexComplete())
+    u32 chainCount;
+    u32 Tmp_RNG;
+    bool32 needShiny = FALSE;
+    u8 PIDNature;
+    u8 gender = 0;
+    u8 unownLetter = 0;
+
+    Tmp_RNG = gRngValue;
+
+    // The chain bonus only applies to the species that was caught last.
+    if (GetShinyChainCount() > 0 && species == GetShinyChainSpecies())
+        chainCount = GetShinyChainCount();
+    else
+        chainCount = 0;
+
+    if (FlagGet(0x037))
     {
-        BoostedShinyValue = 2730 - AdditionalShinyValue;  // ~1/2730
+        /* Reach 1/256 at 40 caught Pokemon. */
+        if (chainCount >= 80)
+            BoostedShinyValue = 256;
+        else
+            BoostedShinyValue = 4096 - (chainCount * 48);
     }
     else
     {
-        BoostedShinyValue = 512 - AdditionalShinyValue;
+        /* Reach 1/512 at 40 caught Pokemon. */
+        if (chainCount >= 80)
+            BoostedShinyValue = 512;
+        else
+            BoostedShinyValue = 4096 - ((chainCount * 224) / 5);
     }
-	if (ForceShiny)
-	{
-		BoostedShinyValue = 1;
-	}
+
+    if (!GetMonData(&gPlayerParty[0], MON_DATA_SANITY_IS_EGG)
+        && GetMonAbility(&gPlayerParty[0]) == ABILITY_SYNCHRONIZE)
+    {
+        PIDNature = GetMonData(&gPlayerParty[0], MON_DATA_PERSONALITY) % NUM_NATURES;
+    }
+    else
+    {
+        PIDNature = targetNature;
+    }
+
+    if (ForceShiny)
+        BoostedShinyValue = 1;
+
+    if (keepTraits)
+    {
+        gender = GetGenderFromSpeciesAndPersonality(species, traitsPersonality);
+        unownLetter = GET_UNOWN_LETTER(traitsPersonality);
+    }
+
     if ((Random32() % BoostedShinyValue) == 0
         || FlagGet(FLAG_STARTER_SHINY_0)
         || FlagGet(FLAG_STARTER_SHINY_1)
         || FlagGet(FLAG_STARTER_SHINY_2))
     {
         gSoftResetDisabled = TRUE;
-		IsShiny = TRUE;
-
-        value = GetTrainerShinyValue();
-
-        do
-        {
-            personality = Random32();
-        }
-        while (
-		(!IsShiny && GetNatureFromPersonality(personality) != PIDNature)
-		|| (!FlagGet(0x049) && ((HIHALF(value) ^ LOHALF(value)
-			^ HIHALF(personality) ^ LOHALF(personality)) >= SHINY_ODDS))
-		);
-    }
-    else
-    {	
-		do
-		{
-			personality = Random32();
-		}
-		while (GetNatureFromPersonality(personality) != PIDNature);
+        needShiny = !FlagGet(0x049); // flag 0x049 keeps the old behaviour: no shiny requirement
     }
 
-	ivValue1 = Random();
-	ivValue2 = Random();
-	gRngValue = Tmp_RNG;
+    personality = BuildPidAndIvs(species, PIDNature, needShiny, GetTrainerShinyValue(),
+                                 keepTraits, gender, unownLetter);
+    gRngValue = Tmp_RNG;
+
     return personality;
-
 }
 
 void CreateMon(struct Pokemon *mon, u16 species, u8 level, u8 fixedIV, u8 hasFixedPersonality, u32 fixedPersonality, u8 otIdType, u32 fixedOtId)
@@ -2397,22 +2525,18 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
     ZeroBoxMonData(boxMon);
 
     if (!hasFixedPersonality)
-	{
-		personality = RollShinyPersonalityChance (Random() % 24, FALSE);
-	}
+    {
+        personality = RollShinyPersonalityChance(species, Random() % NUM_NATURES, FALSE, FALSE, 0);
+    }
+    else if (FlagGet(0x04B) && FlagGet(0x04C))
+    {
+        personality = RollShinyPersonalityChance(species, Random() % NUM_NATURES, TRUE, TRUE, fixedPersonality);
+    }
     else
-	{
-		if (FlagGet (0x04B) && FlagGet (0x04C))
-		{
-			personality = RollShinyPersonalityChance (Random() % 24, TRUE);
-		}
-		else
-		{
-			personality = RollShinyPersonalityChance (GetNatureFromPersonality (fixedPersonality), FALSE);
-		}
-			
-	}
-	
+    {
+        personality = RollShinyPersonalityChance(species, GetNatureFromPersonality(fixedPersonality), FALSE, TRUE, fixedPersonality);
+    }
+
     SetBoxMonData(boxMon, MON_DATA_PERSONALITY, &personality);
 
     // Determine original trainer ID
@@ -6508,13 +6632,17 @@ static u16 GetPreEvolution(u16 species){
     return SPECIES_NONE;
 }
 
+
 u8 GetMoveRelearnerMoves(struct Pokemon *mon, u16 *moves)
 {
     u16 learnedMoves[MAX_MON_MOVES];
-    u8 numMoves = 0;
     u16 species = GetMonData(mon, MON_DATA_SPECIES, 0);
+    u16 monSpecies = species;
+    u16 eggSpecies;
+    u16 eggMove;
     u8 level = GetMonData(mon, MON_DATA_LEVEL, 0);
     u8 preEvLvl = (level > MAX_LEVEL_DIFF_PRE_EV) ? (level - MAX_LEVEL_DIFF_PRE_EV) : 1;
+    u8 numMoves = 0;
     int i, j, k;
 
     for (i = 0; i < MAX_MON_MOVES; i++)
@@ -6538,18 +6666,53 @@ u8 GetMoveRelearnerMoves(struct Pokemon *mon, u16 *moves)
 
         if (moveLevel <= (level << 9))
         {
-            for (j = 0; j < MAX_MON_MOVES && learnedMoves[j] != (gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID); j++)
+            eggMove = gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID;
+
+            for (j = 0; j < MAX_MON_MOVES && learnedMoves[j] != eggMove; j++)
                 ;
 
             if (j == MAX_MON_MOVES)
             {
-                for (k = 0; k < numMoves && moves[k] != (gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID); k++)
+                for (k = 0; k < numMoves && moves[k] != eggMove; k++)
                     ;
 
                 if (k == numMoves)
-                    moves[numMoves++] = gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID;
+                    moves[numMoves++] = eggMove;
             }
         }
+    }
+
+    // Add egg moves from the species' first matching entry in its evolution chain.
+    eggSpecies = monSpecies;
+
+    while (eggSpecies != SPECIES_NONE)
+    {
+        for (i = 0; gEggMoves[i] != EGG_MOVES_TERMINATOR; i++)
+        {
+            if (gEggMoves[i] == eggSpecies + EGG_MOVES_SPECIES_OFFSET)
+            {
+                for (j = i + 1; gEggMoves[j] < EGG_MOVES_SPECIES_OFFSET; j++)
+                {
+                    eggMove = gEggMoves[j];
+
+                    for (k = 0; k < MAX_MON_MOVES && learnedMoves[k] != eggMove; k++)
+                        ;
+
+                    if (k == MAX_MON_MOVES)
+                    {
+                        for (k = 0; k < numMoves && moves[k] != eggMove; k++)
+                            ;
+
+                        if (k == numMoves)
+                            moves[numMoves++] = eggMove;
+                    }
+                }
+
+                return numMoves;
+            }
+        }
+
+        eggSpecies = GetPreEvolution(eggSpecies);
     }
 
     return numMoves;
@@ -6566,55 +6729,15 @@ u8 GetLevelUpMovesBySpecies(u16 species, u16 *moves)
      return numMoves;
 }
 
+
 u8 GetNumberOfRelearnableMoves(struct Pokemon *mon)
 {
-    u16 learnedMoves[MAX_MON_MOVES];
-    u16 moves[MAX_LEVEL_UP_MOVES];
-    u8 numMoves = 0;
-    u16 species = GetMonData(mon, MON_DATA_SPECIES_OR_EGG, 0);
-    u8 level = GetMonData(mon, MON_DATA_LEVEL, 0);
-    u8 preEvLvl = (level > MAX_LEVEL_DIFF_PRE_EV) ? (level - MAX_LEVEL_DIFF_PRE_EV) : 1;
-    int i, j, k;
+    u16 moves[MAX_LEVEL_UP_MOVES + EGG_MOVES_ARRAY_COUNT];
 
-    if (species == SPECIES_EGG)
+    if (GetMonData(mon, MON_DATA_SPECIES_OR_EGG, 0) == SPECIES_EGG)
         return 0;
 
-    for (i = 0; i < MAX_MON_MOVES; i++)
-        learnedMoves[i] = GetMonData(mon, MON_DATA_MOVE1 + i, 0);
-
-    for (i = 0; i < MAX_LEVEL_UP_MOVES; i++)
-    {
-        u16 moveLevel;
-
-        if (gLevelUpLearnsets[species][i] == LEVEL_UP_END)
-        {
-            i = 0;
-            level = preEvLvl;
-            species = GetPreEvolution(species);
-        }
-
-        if (species == SPECIES_NONE)
-            break;
-
-        moveLevel = gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_LV;
-
-        if (moveLevel <= (level << 9))
-        {
-            for (j = 0; j < MAX_MON_MOVES && learnedMoves[j] != (gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID); j++)
-                ;
-
-            if (j == MAX_MON_MOVES)
-            {
-                for (k = 0; k < numMoves && moves[k] != (gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID); k++)
-                    ;
-
-                if (k == numMoves)
-                    moves[numMoves++] = gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID;
-            }
-        }
-    }
-
-    return numMoves;
+    return GetMoveRelearnerMoves(mon, moves);
 }
 
 u16 SpeciesToPokedexNum(u16 species)
@@ -6796,6 +6919,12 @@ const struct CompressedSpritePalette *GetMonSpritePalStructFromOtIdPersonality(u
 }
 
 bool32 IsHMMove2(u16 move)
+{
+    // HM moves can be forgotten or replaced like any other move (level-up in battle, evolution)
+    return FALSE;
+}
+
+static bool32 UNUSED IsHMMove2_Original(u16 move)
 {
     int i = 0;
     while (sHMMoves[i] != HM_MOVES_END)

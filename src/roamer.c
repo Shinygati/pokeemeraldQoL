@@ -281,6 +281,12 @@ void CreateRoamerMonInstance(void)
     struct Pokemon *mon = &gEnemyParty[0];
     ZeroEnemyPartyMons();
     CreateMonWithIVsPersonality(mon, ROAMER->species, ROAMER->level, ROAMER->ivs, ROAMER->personality);
+
+    // Latias/Latios are regenerated on every encounter (see CreateMonWithIVsPersonality),
+    // so write the PID and IVs that were actually generated back into the roamer data.
+    ROAMER->ivs = GetMonData(mon, MON_DATA_IVS);
+    ROAMER->personality = GetMonData(mon, MON_DATA_PERSONALITY);
+
 // The roamer's status field is u8, but SetMonData expects status to be u32, so will set the roamer's status
 // using the status field and the following 3 bytes (cool, beauty, and cute).
 #ifdef BUGFIX

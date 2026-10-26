@@ -1713,6 +1713,15 @@ static const struct BattleWindowText sTextOnWindowsInfo_Normal[] =
         .fgColor = 1,
         .shadowColor = 6,
     },
+    [B_WIN_SHINY_CHAIN] = {
+        .fillValue = PIXEL_FILL(0),
+        .fontId = FONT_NORMAL,
+        .x = 0,
+        .y = 1,
+        .speed = 0,
+        .fgColor = 1,
+        .shadowColor = 6,
+    },
 };
 
 static const struct BattleWindowText sTextOnWindowsInfo_Arena[] =

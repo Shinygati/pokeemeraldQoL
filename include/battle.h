@@ -728,4 +728,7 @@ extern u8 gMultiUsePlayerCursor;
 extern u8 gNumberOfMovesToChoose;
 extern u8 gBattleControllerData[MAX_BATTLERS_COUNT];
 
+void UpdateShinyChainCounter(void);
+void ResetShinyChainCounterDisplay(void);
+
 #endif // GUARD_BATTLE_H

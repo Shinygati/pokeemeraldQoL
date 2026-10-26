@@ -25,6 +25,7 @@
 #include "constants/battle_anim.h"
 #include "constants/rgb.h"
 #include "constants/songs.h"
+#include "battle_interface.h"
 
 struct TestingBar
 {
@@ -2602,3 +2603,69 @@ static void SafariTextIntoHealthboxObject(void *dest, u8 *windowTileData, u32 wi
     CpuCopy32(windowTileData, dest, windowWidth * TILE_SIZE_4BPP);
     CpuCopy32(windowTileData + 256, dest + 256, windowWidth * TILE_SIZE_4BPP);
 }
+
+static u16 sLastDisplayedShinyChainCount;
+
+void ResetShinyChainCounterDisplay(void)
+{
+    sLastDisplayedShinyChainCount = 0;
+}
+
+
+void UpdateShinyChainCounter(void)
+{
+    u16 chainCount;
+    u8 text[16];
+
+    if (gBattleTypeFlags & BATTLE_TYPE_TRAINER)
+        return;
+
+    chainCount = GetShinyChainCount();
+
+    if (chainCount == 0)
+    {
+        if (sLastDisplayedShinyChainCount != 0)
+        {
+            FillWindowPixelBuffer(B_WIN_SHINY_CHAIN, PIXEL_FILL(0));
+            CopyWindowToVram(B_WIN_SHINY_CHAIN, COPYWIN_FULL);
+            ClearWindowTilemap(B_WIN_SHINY_CHAIN);
+            sLastDisplayedShinyChainCount = 0;
+        }
+        return;
+    }
+
+    if (chainCount == sLastDisplayedShinyChainCount)
+        return;
+
+    text[0] = CHAR_C;
+    text[1] = CHAR_h;
+    text[2] = CHAR_a;
+    text[3] = CHAR_i;
+    text[4] = CHAR_n;
+    text[5] = CHAR_COLON;
+    text[6] = CHAR_SPACE;
+    text[7] = EOS;
+
+    ConvertIntToDecimalStringN(
+        text + 7,
+        chainCount,
+        STR_CONV_MODE_LEFT_ALIGN,
+        2);
+
+    FillWindowPixelBuffer(B_WIN_SHINY_CHAIN, PIXEL_FILL(0));
+
+    AddTextPrinterParameterized(
+        B_WIN_SHINY_CHAIN,
+        FONT_NORMAL,
+        text,
+        0,
+        1,
+        0,
+        NULL);
+
+    CopyWindowToVram(B_WIN_SHINY_CHAIN, COPYWIN_FULL);
+    PutWindowTilemap(B_WIN_SHINY_CHAIN);
+
+    sLastDisplayedShinyChainCount = chainCount;
+}
+
