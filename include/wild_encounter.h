@@ -36,5 +36,6 @@ void FishingWildEncounter(u8 rod);
 u16 GetLocalWildMon(bool8 *isWaterMon);
 u16 GetLocalWaterMon(void);
 bool8 UpdateRepelCounter(void);
+bool8 TryBuildLegalWildShiny(u32 shinyXor, u32 *pidOut, u32 *iv1Out, u32 *iv2Out, u8 *levelOut);
 
 #endif // GUARD_WILD_ENCOUNTER_H

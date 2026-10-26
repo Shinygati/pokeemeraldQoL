@@ -25,6 +25,7 @@
 extern const u8 EventScript_RepelWoreOff[];
 
 #define MAX_ENCOUNTER_RATE 2880
+#define LCRNG_PREV(s) (0xEEB9EB65u * (s) + 0x0A3561A1u) // one Random() call backwards
 
 #define NUM_FEEBAS_SPOTS 6
 
@@ -188,10 +189,8 @@ static void FeebasSeedRng(u16 seed)
 }
 
 // LAND_WILD_COUNT
-static u8 ChooseWildMonIndex_Land(void)
+static u8 WildMonIndexFromRand_Land(u8 rand)
 {
-    u8 rand = Random() % ENCOUNTER_CHANCE_LAND_MONS_TOTAL;
-
     if (rand < ENCOUNTER_CHANCE_LAND_MONS_SLOT_0)
         return 0;
     else if (rand >= ENCOUNTER_CHANCE_LAND_MONS_SLOT_0 && rand < ENCOUNTER_CHANCE_LAND_MONS_SLOT_1)
@@ -218,11 +217,14 @@ static u8 ChooseWildMonIndex_Land(void)
         return 11;
 }
 
-// ROCK_WILD_COUNT / WATER_WILD_COUNT
-static u8 ChooseWildMonIndex_WaterRock(void)
+static u8 ChooseWildMonIndex_Land(void)
 {
-    u8 rand = Random() % ENCOUNTER_CHANCE_WATER_MONS_TOTAL;
+    return WildMonIndexFromRand_Land(Random() % ENCOUNTER_CHANCE_LAND_MONS_TOTAL);
+}
 
+// ROCK_WILD_COUNT / WATER_WILD_COUNT
+static u8 WildMonIndexFromRand_WaterRock(u8 rand)
+{
     if (rand < ENCOUNTER_CHANCE_WATER_MONS_SLOT_0)
         return 0;
     else if (rand >= ENCOUNTER_CHANCE_WATER_MONS_SLOT_0 && rand < ENCOUNTER_CHANCE_WATER_MONS_SLOT_1)
@@ -235,12 +237,18 @@ static u8 ChooseWildMonIndex_WaterRock(void)
         return 4;
 }
 
+static u8 ChooseWildMonIndex_WaterRock(void)
+{
+    return WildMonIndexFromRand_WaterRock(Random() % ENCOUNTER_CHANCE_WATER_MONS_TOTAL);
+}
+
 // FISH_WILD_COUNT
-static u8 ChooseWildMonIndex_Fishing(u8 rod)
+#define FISHING_SLOT_RAND_MAX max(max(ENCOUNTER_CHANCE_FISHING_MONS_OLD_ROD_TOTAL, ENCOUNTER_CHANCE_FISHING_MONS_GOOD_ROD_TOTAL), \
+                                  ENCOUNTER_CHANCE_FISHING_MONS_SUPER_ROD_TOTAL)
+
+static u8 WildMonIndexFromRand_Fishing(u8 rod, u8 rand)
 {
     u8 wildMonIndex = 0;
-    u8 rand = Random() % max(max(ENCOUNTER_CHANCE_FISHING_MONS_OLD_ROD_TOTAL, ENCOUNTER_CHANCE_FISHING_MONS_GOOD_ROD_TOTAL),
-                             ENCOUNTER_CHANCE_FISHING_MONS_SUPER_ROD_TOTAL);
 
     switch (rod)
     {
@@ -272,6 +280,11 @@ static u8 ChooseWildMonIndex_Fishing(u8 rod)
         break;
     }
     return wildMonIndex;
+}
+
+static u8 ChooseWildMonIndex_Fishing(u8 rod)
+{
+    return WildMonIndexFromRand_Fishing(rod, Random() % FISHING_SLOT_RAND_MAX);
 }
 
 static u8 ChooseWildMonLevel(const struct WildPokemon *wildPokemon)
@@ -310,6 +323,282 @@ static u8 ChooseWildMonLevel(const struct WildPokemon *wildPokemon)
     }
     return min + rand;
 }
+
+// ---- BEGIN LEGAL_WILD_SHINY ----
+// Builds a wild shiny that PKHeX's Emerald "Method H" check accepts.
+//
+// PKHeX takes the seed that made the PID and walks the RNG backwards through
+// the calls an unmodified Emerald makes for a wild encounter:
+//
+//   [rock smash rate] -> slot -> level -> [safari dummy] -> nature / Sync proc
+//   -> [PIDs rejected for the wrong nature] -> PID low -> PID high -> IVs
+//
+// Those earlier calls must reproduce the slot and the met level. Here the whole
+// chain is chosen at once: build a shiny PID, solve for the seeds that output
+// it, keep seeds whose IV calls hold 2 good IVs, then look backwards for a
+// legal nature / Synchronize frame that rolls the same slot the game already
+// picked. A Synchronize lead uses the vanilla "proc passed" layout (an even
+// proc call), so the 100% Synchronize change still gives the lead's nature.
+//
+// The level comes from the solved level call, so it can differ from the level
+// the game rolled, but it is always inside that slot's level range.
+enum
+{
+    WILD_SHINY_LAND,
+    WILD_SHINY_WATER,
+    WILD_SHINY_ROCK_SMASH,
+    WILD_SHINY_OLD_ROD,
+    WILD_SHINY_GOOD_ROD,
+    WILD_SHINY_SUPER_ROD,
+    WILD_SHINY_FIFTY, // Feebas tiles and mass outbreaks: slot roll < 50
+};
+
+struct WildShinyContext
+{
+    const struct WildPokemon *mons;
+    u16 species;
+    u16 rockSmashRate;
+    u8 type;
+    u8 slot;
+    bool8 active;
+    bool8 safari;
+    bool8 checkRepel;
+    bool8 anySlotOfSpecies;
+};
+
+// Search stages, tried in order until one finds a match. Each stage has a
+// budget in seed solves (one solve is one shiny PID reversed into its seeds).
+struct WildShinyStage
+{
+    u16 solves;
+    u8 minIv;            // two IVs must be at least this
+    bool8 anySlotOfSpecies; // FALSE = only the slot the game rolled
+};
+
+// One solve costs very roughly 0.13 ms on hardware. Stage 1 keeps the strict
+// two-31s rule while it can be found quickly; rare slots without a
+// Synchronize lead then settle for two IVs of 25+ so the pause stays short.
+static const struct WildShinyStage sWildShinyStages[] =
+{
+    {  700, 31, FALSE }, // two 31s, same slot
+    { 1200, 25, FALSE }, // two 25+, same slot
+    { 3000, 25, TRUE },  // two 25+, any slot holding the same species
+};
+
+#define WILD_SHINY_MAX_WINDOW 64
+
+EWRAM_DATA static struct WildShinyContext sWildShinyCtx = {0};
+EWRAM_DATA static struct WildPokemon sWildShinyOutbreakMon = {0};
+
+static void SetWildShinyContext(const struct WildPokemon *mons, u8 type, u8 slot, u8 flags, u8 encounterRate)
+{
+    u32 rate;
+
+    if (gMapHeader.mapLayoutId == LAYOUT_BATTLE_FRONTIER_BATTLE_PIKE_ROOM_WILD_MONS
+     || gMapHeader.mapLayoutId == LAYOUT_BATTLE_FRONTIER_BATTLE_PYRAMID_FLOOR)
+    {
+        sWildShinyCtx.active = FALSE; // frontier mons can't be kept
+        return;
+    }
+
+    // PKHeX's Rock Smash check: rate * 16, +50% (White Flute).
+    rate = encounterRate * 16;
+    rate += rate >> 1;
+
+    sWildShinyCtx.mons = mons;
+    sWildShinyCtx.slot = slot;
+    sWildShinyCtx.species = mons[slot].species;
+    sWildShinyCtx.type = type;
+    sWildShinyCtx.rockSmashRate = rate;
+    sWildShinyCtx.safari = GetSafariZoneFlag();
+    sWildShinyCtx.checkRepel = (flags & WILD_CHECK_REPEL) != 0;
+    sWildShinyCtx.anySlotOfSpecies = FALSE;
+    sWildShinyCtx.active = TRUE;
+}
+
+static void ClearWildShinyContext(void)
+{
+    sWildShinyCtx.active = FALSE;
+}
+
+static u8 WildMonLevelFromRand(const struct WildPokemon *wildPokemon, u16 rand)
+{
+    u8 min, max;
+
+    // Same min/max handling as ChooseWildMonLevel.
+    if (wildPokemon->maxLevel >= wildPokemon->minLevel)
+    {
+        min = wildPokemon->minLevel;
+        max = wildPokemon->maxLevel;
+    }
+    else
+    {
+        min = wildPokemon->maxLevel;
+        max = wildPokemon->minLevel;
+    }
+    return min + rand % (u8)(max - min + 1);
+}
+
+// 'state' is the RNG state just after the nature (or Synchronize proc) call.
+static bool8 WildShinyTryFrame(u32 state, u8 *levelOut)
+{
+    struct WildShinyContext *ctx = &sWildShinyCtx;
+    u16 levelRand, slotRand;
+    u8 slot, level;
+
+    state = LCRNG_PREV(state);
+    if (ctx->safari)
+        state = LCRNG_PREV(state); // unused call between level and nature in the Safari Zone
+    levelRand = state >> 16;
+    state = LCRNG_PREV(state);
+    slotRand = state >> 16;
+
+    switch (ctx->type)
+    {
+    case WILD_SHINY_LAND:
+        slot = WildMonIndexFromRand_Land(slotRand % ENCOUNTER_CHANCE_LAND_MONS_TOTAL);
+        break;
+    case WILD_SHINY_WATER:
+    case WILD_SHINY_ROCK_SMASH:
+        slot = WildMonIndexFromRand_WaterRock(slotRand % ENCOUNTER_CHANCE_WATER_MONS_TOTAL);
+        break;
+    case WILD_SHINY_OLD_ROD:
+        slot = WildMonIndexFromRand_Fishing(OLD_ROD, slotRand % FISHING_SLOT_RAND_MAX);
+        break;
+    case WILD_SHINY_GOOD_ROD:
+        slot = WildMonIndexFromRand_Fishing(GOOD_ROD, slotRand % FISHING_SLOT_RAND_MAX);
+        break;
+    case WILD_SHINY_SUPER_ROD:
+        slot = WildMonIndexFromRand_Fishing(SUPER_ROD, slotRand % FISHING_SLOT_RAND_MAX);
+        break;
+    default: // WILD_SHINY_FIFTY
+        if (FastMod100(slotRand) >= 50)
+            return FALSE;
+        slot = 0;
+        break;
+    }
+
+    if (slot != ctx->slot)
+    {
+        if (!ctx->anySlotOfSpecies || ctx->mons[slot].species != ctx->species)
+            return FALSE;
+    }
+
+    level = WildMonLevelFromRand(&ctx->mons[slot], levelRand);
+    if (ctx->checkRepel && !IsWildLevelAllowedByRepel(level))
+        return FALSE;
+
+    if (ctx->type == WILD_SHINY_ROCK_SMASH)
+    {
+        // The encounter-rate roll made just before the slot roll must pass.
+        state = LCRNG_PREV(state);
+        if ((state >> 16) % MAX_ENCOUNTER_RATE >= ctx->rockSmashRate)
+            return FALSE;
+    }
+
+    *levelOut = level;
+    return TRUE;
+}
+
+// 'pidSeed' is the RNG state just before the PID low call.
+static bool8 WildShinyFindFrame(u32 pidSeed, u8 nature, bool8 sync, u8 *levelOut)
+{
+    u32 state = pidSeed;
+    u32 prev;
+    u16 p0;
+    u8 i;
+
+    for (i = 0; i < WILD_SHINY_MAX_WINDOW; i++)
+    {
+        p0 = state >> 16; // the nature call, or the Synchronize proc call
+        if ((sync && (p0 & 1) == 0) || FastMod25(p0) == nature)
+        {
+            if (WildShinyTryFrame(state, levelOut))
+                return TRUE;
+        }
+
+        // Step back past one more PID that the nature loop would have rejected.
+        // Stop once that PID would have been accepted (PKHeX's reversal window).
+        prev = LCRNG_PREV(state);
+        if (FastMod25(((u32)p0 << 16) | (prev >> 16)) == nature)
+            break;
+        state = LCRNG_PREV(prev);
+    }
+    return FALSE;
+}
+
+static u8 GetWildShinySyncNature(void)
+{
+    if (!GetMonData(&gPlayerParty[0], MON_DATA_SANITY_IS_EGG)
+        && GetMonAbility(&gPlayerParty[0]) == ABILITY_SYNCHRONIZE)
+        return GetMonData(&gPlayerParty[0], MON_DATA_PERSONALITY) % NUM_NATURES;
+    return NUM_NATURES; // no Synchronize lead
+}
+
+// Called by pokemon.c when a shiny has been rolled. Returns FALSE when no wild
+// encounter is being generated, or if every search stage runs out (the caller
+// then falls back to a plain Method 1 shiny).
+bool8 TryBuildLegalWildShiny(u32 shinyXor, u32 *pidOut, u32 *iv1Out, u32 *iv2Out, u8 *levelOut)
+{
+    u32 seeds[MAX_PID_SEEDS];
+    u32 pid, lo, hiBase, solves, iv1, iv2;
+    u8 stage, count, n, w, wEnd, n0, nature, syncNature;
+
+    if (!sWildShinyCtx.active)
+        return FALSE;
+
+    syncNature = GetWildShinySyncNature();
+
+    for (stage = 0; stage < ARRAY_COUNT(sWildShinyStages); stage++)
+    {
+        sWildShinyCtx.anySlotOfSpecies = sWildShinyStages[stage].anySlotOfSpecies;
+        solves = 0;
+        while (solves < sWildShinyStages[stage].solves)
+        {
+            // For a given PID low half, the shiny high halves are exactly
+            // hiBase | w for w = 0..7 (shinyXor ^ hi ^ lo < SHINY_ODDS).
+            lo = Random();
+            hiBase = (shinyXor ^ lo) & 0xFFFF & ~(SHINY_ODDS - 1);
+            // pid % 25 == (hi * 65536 + lo) % 25 == (hi * 11 + lo) % 25 == (n0 + 11 * w) % 25
+            n0 = FastMod25(hiBase * 11 + lo);
+            if (syncNature < NUM_NATURES)
+            {
+                // Only one w can give the Synchronize nature: 11 * 16 == 1 (mod 25).
+                w = FastMod25((syncNature + 25 - n0) * 16);
+                if (w >= SHINY_ODDS)
+                    continue;
+                wEnd = w + 1;
+            }
+            else
+            {
+                w = 0;
+                wEnd = SHINY_ODDS;
+            }
+
+            for (; w < wEnd; w++)
+            {
+                nature = FastMod25(n0 + 11 * w);
+                pid = ((hiBase | w) << 16) | lo;
+                count = SolveMethod1Seeds(pid, seeds);
+                solves++;
+                for (n = 0; n < count; n++)
+                {
+                    if (!GetGoodIvsAfterPid(seeds[n], TRUE, sWildShinyStages[stage].minIv, &iv1, &iv2))
+                        continue;
+                    if (WildShinyFindFrame(seeds[n], nature, syncNature < NUM_NATURES, levelOut))
+                    {
+                        *pidOut = pid;
+                        *iv1Out = iv1;
+                        *iv2Out = iv2;
+                        return TRUE;
+                    }
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+// ---- END LEGAL_WILD_SHINY ----
 
 static u16 GetCurrentMapWildMonHeaderId(void)
 {
@@ -433,7 +722,11 @@ static bool8 TryGenerateWildMon(const struct WildPokemonInfo *wildMonInfo, u8 ar
     if (gMapHeader.mapLayoutId != LAYOUT_BATTLE_FRONTIER_BATTLE_PIKE_ROOM_WILD_MONS && flags & WILD_CHECK_KEEN_EYE && !IsAbilityAllowingEncounter(level))
         return FALSE;
 
+    SetWildShinyContext(wildMonInfo->wildPokemon,
+                        area == WILD_AREA_LAND ? WILD_SHINY_LAND : (area == WILD_AREA_WATER ? WILD_SHINY_WATER : WILD_SHINY_ROCK_SMASH),
+                        wildMonIndex, flags, wildMonInfo->encounterRate);
     CreateWildMon(wildMonInfo->wildPokemon[wildMonIndex].species, level);
+    ClearWildShinyContext();
     return TRUE;
 }
 
@@ -442,7 +735,11 @@ static u16 GenerateFishingWildMon(const struct WildPokemonInfo *wildMonInfo, u8 
     u8 wildMonIndex = ChooseWildMonIndex_Fishing(rod);
     u8 level = ChooseWildMonLevel(&wildMonInfo->wildPokemon[wildMonIndex]);
 
+    SetWildShinyContext(wildMonInfo->wildPokemon,
+                        rod == OLD_ROD ? WILD_SHINY_OLD_ROD : (rod == GOOD_ROD ? WILD_SHINY_GOOD_ROD : WILD_SHINY_SUPER_ROD),
+                        wildMonIndex, 0, 0);
     CreateWildMon(wildMonInfo->wildPokemon[wildMonIndex].species, level);
+    ClearWildShinyContext();
     return wildMonInfo->wildPokemon[wildMonIndex].species;
 }
 
@@ -453,7 +750,12 @@ static bool8 SetUpMassOutbreakEncounter(u8 flags)
     if (flags & WILD_CHECK_REPEL && !IsWildLevelAllowedByRepel(gSaveBlock1Ptr->outbreakPokemonLevel))
         return FALSE;
 
+    sWildShinyOutbreakMon.minLevel = gSaveBlock1Ptr->outbreakPokemonLevel;
+    sWildShinyOutbreakMon.maxLevel = gSaveBlock1Ptr->outbreakPokemonLevel;
+    sWildShinyOutbreakMon.species = gSaveBlock1Ptr->outbreakPokemonSpecies;
+    SetWildShinyContext(&sWildShinyOutbreakMon, WILD_SHINY_FIFTY, 0, flags, 0);
     CreateWildMon(gSaveBlock1Ptr->outbreakPokemonSpecies, gSaveBlock1Ptr->outbreakPokemonLevel);
+    ClearWildShinyContext();
     for (i = 0; i < MAX_MON_MOVES; i++)
         SetMonMoveSlot(&gEnemyParty[0], gSaveBlock1Ptr->outbreakPokemonMoves[i], i);
 
@@ -767,7 +1069,9 @@ void FishingWildEncounter(u8 rod)
     {
         u8 level = ChooseWildMonLevel(&sWildFeebas);
         species = sWildFeebas.species;
+        SetWildShinyContext(&sWildFeebas, WILD_SHINY_FIFTY, 0, 0, 0);
         CreateWildMon(species, level);
+        ClearWildShinyContext();
     }
     else
     {

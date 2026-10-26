@@ -445,6 +445,14 @@ void UpdateShinyChain(u16 species);
 u16 GetShinyChainCount(void);
 u16 GetShinyChainSpecies(void);
 
+// Legal shiny PID/IV helpers (see SHINY_PID in pokemon.c)
+#define MAX_PID_SEEDS 4
+u32 FastMod25(u32 x);
+u32 FastMod100(u16 v);
+u8 SolveMethod1Seeds(u32 pid, u32 *seeds);
+bool8 HasTwoIvsAtLeast(u32 iv1, u32 iv2, u8 minIv);
+bool8 GetGoodIvsAfterPid(u32 seed, bool8 allowVBlank, u8 minIv, u32 *iv1, u32 *iv2);
+
 /* GameFreak called Get(Box)MonData with either 2 or 3 arguments, for
  * type safety we have a Get(Box)MonData macro which dispatches to
  * either Get(Box)MonData2 or Get(Box)MonData3 based on the number of

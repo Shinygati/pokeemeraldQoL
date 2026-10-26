@@ -83,6 +83,7 @@ static u32 LatiosIVs;
 static u32 CustomFixedIV;
 static u32 ivValue1;
 static u32 ivValue2;
+static u8 sShinyLevelOverride; // set when a legal wild shiny needs a different level from the same slot
 static u16 sLastCaughtSpecies;
 static u16 sShinyChainCount;
 extern const u16 gEggMoves[];
@@ -2326,41 +2327,137 @@ u16 GetShinyChainSpecies(void)
 }
 
 // ---- BEGIN SHINY_PID ----
-// Gen 3 PKHeX legality needs PID low, PID high, IV1, IV2 to be four consecutive
-// outputs of the game's LCRNG (Method 1). To guarantee a shiny with a given
-// nature without a ~200,000 iteration rejection loop, the PID is built
-// directly and the LCRNG state that produces it is solved for afterwards.
+// Gen 3 PKHeX legality needs PID low, PID high and the IVs to come from one run
+// of the game's LCRNG (Method 1: lo, hi, iv1, iv2). To guarantee a shiny without
+// a ~200,000 iteration rejection loop, a shiny PID is built directly and the
+// LCRNG states that output it are solved for afterwards.
+//
+// Shinies are also guaranteed at least 2 perfect (31) IVs. That is done by only
+// accepting solved seeds whose own following RNG calls already contain two 31s,
+// so the PID/IV link that PKHeX checks is never broken.
 #define LCRNG_MULT      0x41C64E6Du
 #define LCRNG_ADD       0x00006073u
 #define LCRNG_INV_MULT  0xEEB9EB65u // inverse of LCRNG_MULT mod 2^32
 #define LCRNG_INV_ADD   0x0A3561A1u // reverse step: s0 = INV_MULT * s1 + INV_ADD
 #define SHINY_BUILD_ATTEMPTS 4096
 
-// Finds a state S such that two consecutive Random() calls from S return
-// (pid & 0xFFFF) and then (pid >> 16). Roughly 63% of PIDs have a solution.
-static bool32 FindSeedForPid(u32 pid, u32 *seed)
+// x % 25 without a software divide. 256^k mod 25 = 1, 6, 11, 16 folds x into
+// [0, 8670], where (t * 5243) >> 17 == t / 25 exactly.
+u32 FastMod25(u32 x)
+{
+    u32 t = (x & 0xFF) + ((x >> 8) & 0xFF) * 6 + ((x >> 16) & 0xFF) * 11 + (x >> 24) * 16;
+    return t - 25 * ((t * 5243) >> 17);
+}
+
+// v % 100 for a 16-bit value. 256 mod 100 = 56 folds v into [0, 14535],
+// where (t * 5243) >> 19 == t / 100 exactly.
+u32 FastMod100(u16 v)
+{
+    u32 t = (v & 0xFF) + (v >> 8) * 56;
+    return t - 100 * ((t * 5243) >> 19);
+}
+
+// Finds every LCRNG state S whose next two Random() calls return (pid & 0xFFFF)
+// and then (pid >> 16). On average one exists per PID (none for ~37%, up to 3).
+//
+// With s1 = (lo << 16) | k we need (base + MULT * k) mod 2^32 < 0x10000 for
+// some 16-bit k. The k values that do this form a 2D lattice with the reduced
+// basis (26579, 32471) / (76347, -68321), so only a 5 x 4 block of lattice
+// points around the estimated centre can hit. Checked against a full
+// 65536-step brute force for every PID tested.
+u8 SolveMethod1Seeds(u32 pid, u32 *seeds)
 {
     u32 lo = pid & 0xFFFF;
-    u32 target = pid & 0xFFFF0000;
-    // s1 = (lo << 16) | k, s2 = MULT * s1 + ADD; s2 advances by MULT per k.
-    u32 t = LCRNG_MULT * (lo << 16) + LCRNG_ADD;
-    u32 k;
+    u32 base = LCRNG_MULT * (lo << 16) + LCRNG_ADD - (pid & 0xFFFF0000);
+    u32 b16 = base >> 16;
+    s32 iMid = -(s32)(b16 + ((b16 * 10811) >> 16)); // ~ -base * 76347 / 2^32
+    s32 jMid = (s32)((b16 * 26579) >> 16);          // ~  base * 26579 / 2^32
+    s32 kRow = (iMid - 1) * 26579 + (jMid - 1) * 76347;
+    s32 k;
+    u8 i, j, count = 0;
 
-    for (k = 0; k < 0x10000; k++, t += LCRNG_MULT)
+    // k = i * 26579 + j * 76347 for i in [iMid-1, iMid+3], j in [jMid-1, jMid+2]
+    for (i = 0; i < 5; i++, kRow += 26579)
     {
-        if (((t - target) >> 16) == 0) // high 16 bits of s2 == pid high half
+        for (j = 0, k = kRow; j < 4; j++, k += 76347)
         {
-            u32 s1 = (lo << 16) | k;
-            *seed = LCRNG_INV_MULT * s1 + LCRNG_INV_ADD;
-            return TRUE;
+            if ((u32)k > 0xFFFF)
+                continue;
+            if (((base + LCRNG_MULT * (u32)k) >> 16) == 0 && count < MAX_PID_SEEDS)
+                seeds[count++] = LCRNG_INV_MULT * ((lo << 16) | (u32)k) + LCRNG_INV_ADD;
         }
+    }
+    return count;
+}
+
+// TRUE if at least two of the six IVs in the two IV words are >= minIv.
+bool8 HasTwoIvsAtLeast(u32 iv1, u32 iv2, u8 minIv)
+{
+    u8 good = 0;
+
+    if ((iv1 & MAX_IV_MASK) >= minIv)
+        good++;
+    if (((iv1 >> 5) & MAX_IV_MASK) >= minIv)
+        good++;
+    if (((iv1 >> 10) & MAX_IV_MASK) >= minIv)
+        good++;
+    if ((iv2 & MAX_IV_MASK) >= minIv)
+        good++;
+    if (((iv2 >> 5) & MAX_IV_MASK) >= minIv)
+        good++;
+    if (((iv2 >> 10) & MAX_IV_MASK) >= minIv)
+        good++;
+    return good >= 2;
+}
+
+// Reads the IV calls that follow a PID made from 'seed' and returns TRUE if they
+// hold at least 2 IVs >= minIv. Method 1 (lo, hi, iv1, iv2) is always tried.
+// With allowVBlank, PKHeX's other wild layouts are tried as well: Method 4
+// (iv1, skip, iv2) and Method 2 (skip, iv1, iv2), which real hardware produces
+// when a v-blank interrupt lands between the calls.
+bool8 GetGoodIvsAfterPid(u32 seed, bool8 allowVBlank, u8 minIv, u32 *iv1, u32 *iv2)
+{
+    u32 c, d, e;
+
+    seed = LCRNG_MULT * seed + LCRNG_ADD; // pid low
+    seed = LCRNG_MULT * seed + LCRNG_ADD; // pid high
+    seed = LCRNG_MULT * seed + LCRNG_ADD;
+    c = seed >> 16;
+    seed = LCRNG_MULT * seed + LCRNG_ADD;
+    d = seed >> 16;
+
+    if (HasTwoIvsAtLeast(c, d, minIv))
+    {
+        *iv1 = c;
+        *iv2 = d;
+        return TRUE;
+    }
+    if (!allowVBlank)
+        return FALSE;
+
+    seed = LCRNG_MULT * seed + LCRNG_ADD;
+    e = seed >> 16;
+    // PKHeX tells these apart by trying Method 1, then 4, then 2 against the
+    // 15 bits the IVs use. Skip any layout that it would read as a different
+    // one, so the IVs it reports are exactly the ones written.
+    if (((c ^ d) & 0x7FFF) != 0 && ((d ^ e) & 0x7FFF) != 0 && HasTwoIvsAtLeast(c, e, minIv))
+    {
+        *iv1 = c; // Method 4
+        *iv2 = e;
+        return TRUE;
+    }
+    if (((c ^ d) & 0x7FFF) != 0 && HasTwoIvsAtLeast(d, e, minIv))
+    {
+        *iv1 = d; // Method 2
+        *iv2 = e;
+        return TRUE;
     }
     return FALSE;
 }
 
 static bool32 PidMatchesTraits(u32 pid, u16 species, u8 nature, bool32 keepTraits, u8 gender, u8 unownLetter)
 {
-    if (GetNatureFromPersonality(pid) != nature)
+    if (FastMod25(pid) != nature)
         return FALSE;
     if (keepTraits)
     {
@@ -2372,16 +2469,28 @@ static bool32 PidMatchesTraits(u32 pid, u16 species, u8 nature, bool32 keepTrait
     return TRUE;
 }
 
-// Always leaves ivValue1/ivValue2 as the two Random() calls that directly follow
-// the PID halves. Advances gRngValue; the caller restores it.
+// Always leaves ivValue1/ivValue2 holding IVs that PKHeX links to the PID.
+// Advances gRngValue; the caller restores it.
 static u32 BuildPidAndIvs(u16 species, u8 nature, bool32 needShiny, u32 shinyValue,
                           bool32 keepTraits, u8 gender, u8 unownLetter)
 {
-    u32 pid, lo, hi, seed, tries, d, dStart;
+    u32 pid, lo, hi, tries, d, dStart, iv1, iv2;
+    u32 seeds[MAX_PID_SEEDS];
+    u8 level, count, n;
     u32 shinyXor = HIHALF(shinyValue) ^ LOHALF(shinyValue);
 
     if (needShiny)
     {
+        // Wild encounters: a fully frame-legal shiny from the same encounter slot.
+        if (TryBuildLegalWildShiny(shinyXor, &pid, &iv1, &iv2, &level))
+        {
+            ivValue1 = iv1;
+            ivValue2 = iv2;
+            sShinyLevelOverride = level;
+            return pid;
+        }
+
+        // Everything else (and the wild fallback): Method 1 PID/IV with 2 perfect IVs.
         for (tries = 0; tries < SHINY_BUILD_ATTEMPTS; tries++)
         {
             lo = Random();
@@ -2389,17 +2498,19 @@ static u32 BuildPidAndIvs(u16 species, u8 nature, bool32 needShiny, u32 shinyVal
             for (d = 0; d < SHINY_ODDS; d++)
             {
                 // shiny <=> shinyXor ^ hi ^ lo < SHINY_ODDS
-                hi = shinyXor ^ lo ^ ((dStart + d) % SHINY_ODDS);
+                hi = (shinyXor ^ lo ^ ((dStart + d) % SHINY_ODDS)) & 0xFFFF;
                 pid = (hi << 16) | lo;
-                if (PidMatchesTraits(pid, species, nature, keepTraits, gender, unownLetter)
-                    && FindSeedForPid(pid, &seed))
+                if (!PidMatchesTraits(pid, species, nature, keepTraits, gender, unownLetter))
+                    continue;
+                count = SolveMethod1Seeds(pid, seeds);
+                for (n = 0; n < count; n++)
                 {
-                    gRngValue = seed;
-                    Random();               // pid low half
-                    Random();               // pid high half
-                    ivValue1 = Random();
-                    ivValue2 = Random();
-                    return pid;
+                    if (GetGoodIvsAfterPid(seeds[n], FALSE, MAX_PER_STAT_IVS, &iv1, &iv2))
+                    {
+                        ivValue1 = iv1;
+                        ivValue2 = iv2;
+                        return pid;
+                    }
                 }
             }
         }
@@ -2434,6 +2545,7 @@ static u32 RollShinyPersonalityChance(u16 species, u8 targetNature, u8 ForceShin
     u8 unownLetter = 0;
 
     Tmp_RNG = gRngValue;
+    sShinyLevelOverride = 0;
 
     // The chain bonus only applies to the species that was caught last.
     if (GetShinyChainCount() > 0 && species == GetShinyChainSpecies())
@@ -2498,6 +2610,12 @@ void CreateMon(struct Pokemon *mon, u16 species, u8 level, u8 fixedIV, u8 hasFix
     u32 mail;
     ZeroMonData(mon);
     CreateBoxMon(&mon->box, species, level, fixedIV, hasFixedPersonality, fixedPersonality, otIdType, fixedOtId);
+    if (sShinyLevelOverride != 0)
+    {
+        // A legal wild shiny was given a level from the same slot's range.
+        level = sShinyLevelOverride;
+        sShinyLevelOverride = 0;
+    }
     SetMonData(mon, MON_DATA_LEVEL, &level);
     mail = MAIL_NONE;
     SetMonData(mon, MON_DATA_MAIL, &mail);
@@ -2538,6 +2656,8 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
     }
 
     SetBoxMonData(boxMon, MON_DATA_PERSONALITY, &personality);
+    if (sShinyLevelOverride != 0)
+        level = sShinyLevelOverride;
 
     // Determine original trainer ID
     if (otIdType == OT_ID_RANDOM_NO_SHINY)
