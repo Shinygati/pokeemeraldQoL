@@ -441,6 +441,7 @@ void SetMultiuseSpriteTemplateToPokemon(u16 speciesTag, u8 battlerPosition);
 void SetMultiuseSpriteTemplateToTrainerBack(u16 trainerPicId, u8 battlerPosition);
 void SetMultiuseSpriteTemplateToTrainerFront(u16 trainerPicId, u8 battlerPosition);
 void ResetShinyChain(void);
+void SetNextMonFixedPidAndIvs(u32 personality, u32 ivWord1, u32 ivWord2);
 void UpdateShinyChain(u16 species);
 u16 GetShinyChainCount(void);
 u16 GetShinyChainSpecies(void);

@@ -17,6 +17,7 @@ extern u16 gTotalCameraPixelOffsetY;
 
 void DrawWholeMapView(void);
 void CurrentMapDrawMetatileAt(int x, int y);
+void DexNav_DrawMetatileMirroredAt(int x, int y, bool8 mirror);
 void GetCameraOffsetWithPan(s16 *x, s16 *y);
 void DrawDoorMetatileAt(int x, int y, u16 *tiles);
 void ResetFieldCamera(void);

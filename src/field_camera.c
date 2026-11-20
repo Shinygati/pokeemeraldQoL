@@ -212,6 +212,39 @@ void CurrentMapDrawMetatileAt(int x, int y)
     }
 }
 
+// DexNav: redraws the metatile at map position (x, y), mirrored left-right when
+// 'mirror' is set. Flicking between the two makes a patch of grass rustle using
+// its own graphics and palette (Poké Radar style).
+void DexNav_DrawMetatileMirroredAt(int x, int y, bool8 mirror)
+{
+    int offset = MapPosToBgTilemapOffset(&sFieldCameraOffset, x, y);
+    u16 *buffers[3];
+    u16 tmp;
+    u32 i;
+
+    if (offset < 0)
+        return;
+
+    DrawMetatileAt(gMapHeader.mapLayout, offset, x, y);
+    if (mirror)
+    {
+        buffers[0] = gOverworldTilemapBuffer_Bg1;
+        buffers[1] = gOverworldTilemapBuffer_Bg2;
+        buffers[2] = gOverworldTilemapBuffer_Bg3;
+        for (i = 0; i < 3; i++)
+        {
+            u16 *b = buffers[i];
+            tmp = b[offset];
+            b[offset] = b[offset + 1] ^ 0x400;
+            b[offset + 1] = tmp ^ 0x400;
+            tmp = b[offset + 0x20];
+            b[offset + 0x20] = b[offset + 0x21] ^ 0x400;
+            b[offset + 0x21] = tmp ^ 0x400;
+        }
+    }
+    sFieldCameraOffset.copyBGToVRAM = TRUE;
+}
+
 void DrawDoorMetatileAt(int x, int y, u16 *tiles)
 {
     int offset = MapPosToBgTilemapOffset(&sFieldCameraOffset, x, y);

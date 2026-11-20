@@ -1,4 +1,5 @@
 #include "global.h"
+#include "dexnav.h"
 #include "battle.h"
 #include "battle_anim.h"
 #include "battle_ai_script_commands.h"
@@ -2703,10 +2704,6 @@ static void SpriteCB_WildMonAnimate(struct Sprite *sprite)
     {
         BattleAnimateFrontSprite(sprite, sprite->sSpeciesId, FALSE, 1);
 
-        if (!(gBattleTypeFlags & BATTLE_TYPE_TRAINER)
-    && GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(sprite->sBattler)]],
-                  MON_DATA_SPECIES, NULL) == GetShinyChainSpecies())
-    UpdateShinyChainCounter();
     }
 }
 
@@ -3453,6 +3450,7 @@ static void BattleIntroDrawTrainersOrMonsSprites(void)
                                       | BATTLE_TYPE_TRAINER_HILL)))
             {
                 HandleSetPokedexFlag(SpeciesToNationalPokedexNum(gBattleMons[gActiveBattler].species), FLAG_SET_SEEN, gBattleMons[gActiveBattler].personality);
+                DexNav_IncrementSearchLevel(gBattleMons[gActiveBattler].species);
             }
         }
         else
@@ -3466,6 +3464,7 @@ static void BattleIntroDrawTrainersOrMonsSprites(void)
                                       | BATTLE_TYPE_TRAINER_HILL)))
                 {
                     HandleSetPokedexFlag(SpeciesToNationalPokedexNum(gBattleMons[gActiveBattler].species), FLAG_SET_SEEN, gBattleMons[gActiveBattler].personality);
+                    DexNav_IncrementSearchLevel(gBattleMons[gActiveBattler].species);
                 }
                 BtlController_EmitLoadMonSprite(B_COMM_TO_CONTROLLER);
                 MarkBattlerForControllerExec(gActiveBattler);
@@ -3703,6 +3702,7 @@ static void BattleIntroRecordMonsToDex(void)
                                       | BATTLE_TYPE_TRAINER_HILL)))
             {
                 HandleSetPokedexFlag(SpeciesToNationalPokedexNum(gBattleMons[gActiveBattler].species), FLAG_SET_SEEN, gBattleMons[gActiveBattler].personality);
+                DexNav_IncrementSearchLevel(gBattleMons[gActiveBattler].species);
             }
         }
         gBattleMainFunc = BattleIntroPrintPlayerSendsOut;
@@ -5168,6 +5168,7 @@ static void FreeResetData_ReturnToOvOrDoEvolutions(void)
 {
     if (!gPaletteFade.active)
     {
+        DexNav_OnBattleEnd();
         ResetSpriteData();
         if (gLeveledUpInBattle == 0 || gBattleOutcome != B_OUTCOME_WON)
         {

@@ -1,4 +1,5 @@
 #include "global.h"
+#include "dexnav.h"
 #include "battle.h"
 #include "battle_message.h"
 #include "battle_anim.h"
@@ -4686,7 +4687,10 @@ static void Cmd_switchinanim(void)
                                  | BATTLE_TYPE_RECORDED_LINK
                                  | BATTLE_TYPE_TRAINER_HILL
                                  | BATTLE_TYPE_FRONTIER)))
+    {
         HandleSetPokedexFlag(SpeciesToNationalPokedexNum(gBattleMons[gActiveBattler].species), FLAG_SET_SEEN, gBattleMons[gActiveBattler].personality);
+        DexNav_IncrementSearchLevel(gBattleMons[gActiveBattler].species);
+    }
 
     gAbsentBattlerFlags &= ~(gBitTable[gActiveBattler]);
 
@@ -10077,13 +10081,6 @@ static void Cmd_givecaughtmon(void)
             gBattleCommunication[MULTISTRING_CHOOSER]++;
     }
 
-	UpdateShinyChain(GetMonData(
-        &gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]],
-        MON_DATA_SPECIES,
-        NULL));
-
-    UpdateShinyChainCounter();
-	
     gBattleResults.caughtMonSpecies = GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]], MON_DATA_SPECIES, NULL);
     GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]], MON_DATA_NICKNAME, gBattleResults.caughtMonNick);
     gBattleResults.caughtMonBall = GetMonData(&gEnemyParty[gBattlerPartyIndexes[BATTLE_OPPOSITE(gBattlerAttacker)]], MON_DATA_POKEBALL, NULL);

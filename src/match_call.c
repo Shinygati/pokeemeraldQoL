@@ -1,4 +1,5 @@
 #include "global.h"
+#include "dexnav.h"
 #include "malloc.h"
 #include "battle.h"
 #include "battle_setup.h"
@@ -1155,6 +1156,10 @@ static u32 GetActiveMatchCallTrainerId(u32 activeMatchCallId)
 */
 bool32 TryStartMatchCall(void)
 {
+    // No calls while sneaking up on a DexNav Pokémon.
+    if (DexNav_IsSearchActive())
+        return FALSE;
+
     if (FlagGet(FLAG_HAS_MATCH_CALL)
         && UpdateMatchCallStepCounter()
         && UpdateMatchCallMinutesCounter()

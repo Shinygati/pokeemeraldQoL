@@ -26,6 +26,8 @@ extern const u8 EventScript_RepelWoreOff[];
 
 #define MAX_ENCOUNTER_RATE 2880
 #define LCRNG_PREV(s) (0xEEB9EB65u * (s) + 0x0A3561A1u) // one Random() call backwards
+#define LCRNG_MULT 0x41C64E6Du
+#define LCRNG_ADD  0x00006073u
 
 #define NUM_FEEBAS_SPOTS 6
 
@@ -61,6 +63,7 @@ static bool8 TryGetAbilityInfluencedWildMonIndex(const struct WildPokemon *wildM
 static bool8 TryGetAbilityInfluencedWildMonIndex(const struct WildPokemon *wildMon, u8 type, u8 ability, u8 *monIndex);
 #endif
 static bool8 IsAbilityAllowingEncounter(u8 level);
+static u16 GetCurrentMapWildMonHeaderId(void);
 
 EWRAM_DATA static u8 sWildEncountersDisabled = 0;
 EWRAM_DATA static u32 sFeebasRngValue = 0;
@@ -600,6 +603,370 @@ bool8 TryBuildLegalWildShiny(u32 shinyXor, u32 *pidOut, u32 *iv1Out, u32 *iv2Out
 }
 // ---- END LEGAL_WILD_SHINY ----
 
+// ---- BEGIN DEXNAV_LEGAL ----
+// DexNav Pokémon are ordinary Emerald land / surf encounters as far as PKHeX
+// is concerned, so each one is built as a complete vanilla "Method H" frame:
+//
+//   slot (any slot holding the species) -> level -> nature / Sync proc
+//   -> [rejected PIDs] -> PID low -> PID high -> IVs (Method 1, 4 or 2)
+//
+// on top of which the DexNav extras are layered without breaking the frame:
+//   * potential stars: at least that many IVs are 31,
+//   * the ORAS DexNav shiny roll: a shiny PID,
+//   * the level is whatever the frame's level call gives inside that slot's
+//     own range, i.e. the same levels as a normal encounter.
+//
+// Shinies start from a shiny PID (see TryBuildLegalWildShiny). Everything else
+// starts from the IV words: the wanted 31s are written into two random IV words
+// and the LCRNG states that output them are solved for, which makes extra
+// perfect IVs as cheap as plain ones. A last fallback simply plays a vanilla
+// encounter forwards from a seed that lands on the right slot.
+
+#define DEXNAV_SHINY_BUDGET      2500 // seed solves per shiny stage
+#define DEXNAV_IV_FIRST_BUDGET   1500 // seed solves per non-shiny stage
+
+static u8 CountPerfectIvs(u32 iv1, u32 iv2)
+{
+    u8 n = 0;
+
+    if ((iv1 & MAX_IV_MASK) == MAX_PER_STAT_IVS)
+        n++;
+    if (((iv1 >> 5) & MAX_IV_MASK) == MAX_PER_STAT_IVS)
+        n++;
+    if (((iv1 >> 10) & MAX_IV_MASK) == MAX_PER_STAT_IVS)
+        n++;
+    if ((iv2 & MAX_IV_MASK) == MAX_PER_STAT_IVS)
+        n++;
+    if (((iv2 >> 5) & MAX_IV_MASK) == MAX_PER_STAT_IVS)
+        n++;
+    if (((iv2 >> 10) & MAX_IV_MASK) == MAX_PER_STAT_IVS)
+        n++;
+    return n;
+}
+
+u8 DexNav_CountPerfectIvs(u32 iv1, u32 iv2)
+{
+    return CountPerfectIvs(iv1, iv2);
+}
+
+// Same layouts and PKHeX disambiguation as GetGoodIvsAfterPid, but asks for at
+// least 'need' IVs of exactly 31.
+static bool8 GetPerfectIvsAfterPid(u32 seed, u8 need, u32 *iv1, u32 *iv2)
+{
+    u32 c, d, e;
+
+    seed = LCRNG_MULT * seed + LCRNG_ADD; // pid low
+    seed = LCRNG_MULT * seed + LCRNG_ADD; // pid high
+    seed = LCRNG_MULT * seed + LCRNG_ADD;
+    c = seed >> 16;
+    seed = LCRNG_MULT * seed + LCRNG_ADD;
+    d = seed >> 16;
+
+    if (CountPerfectIvs(c, d) >= need)
+    {
+        *iv1 = c; // Method 1
+        *iv2 = d;
+        return TRUE;
+    }
+
+    seed = LCRNG_MULT * seed + LCRNG_ADD;
+    e = seed >> 16;
+    if (((c ^ d) & 0x7FFF) != 0 && ((d ^ e) & 0x7FFF) != 0 && CountPerfectIvs(c, e) >= need)
+    {
+        *iv1 = c; // Method 4
+        *iv2 = e;
+        return TRUE;
+    }
+    if (((c ^ d) & 0x7FFF) != 0 && CountPerfectIvs(d, e) >= need)
+    {
+        *iv1 = d; // Method 2
+        *iv2 = e;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static u32 GetPlayerShinyXor(void)
+{
+    u32 otId = gSaveBlock2Ptr->playerTrainerId[0]
+             | (gSaveBlock2Ptr->playerTrainerId[1] << 8)
+             | (gSaveBlock2Ptr->playerTrainerId[2] << 16)
+             | (gSaveBlock2Ptr->playerTrainerId[3] << 24);
+    return HIHALF(otId) ^ LOHALF(otId);
+}
+
+bool8 DexNav_IsShinyPid(u32 pid)
+{
+    return (GetPlayerShinyXor() ^ HIHALF(pid) ^ LOHALF(pid)) < SHINY_ODDS;
+}
+
+// Points the legal-frame context at the land or surf table of the current map,
+// accepting every slot that holds 'species'.
+static bool8 DexNavSetFrameContext(u16 species, u8 environment)
+{
+    u16 headerId = GetCurrentMapWildMonHeaderId();
+    const struct WildPokemonInfo *info;
+    u8 i, count;
+
+    ClearWildShinyContext();
+    if (headerId == HEADER_NONE)
+        return FALSE;
+
+    if (environment == DEXNAV_ENV_WATER)
+    {
+        info = gWildMonHeaders[headerId].waterMonsInfo;
+        count = WATER_WILD_COUNT;
+    }
+    else
+    {
+        info = gWildMonHeaders[headerId].landMonsInfo;
+        count = LAND_WILD_COUNT;
+    }
+    if (info == NULL)
+        return FALSE;
+
+    for (i = 0; i < count; i++)
+    {
+        if (info->wildPokemon[i].species == species)
+            break;
+    }
+    if (i == count)
+        return FALSE;
+
+    SetWildShinyContext(info->wildPokemon, environment == DEXNAV_ENV_WATER ? WILD_SHINY_WATER : WILD_SHINY_LAND,
+                        i, 0, info->encounterRate);
+    if (!sWildShinyCtx.active)
+        return FALSE;
+    sWildShinyCtx.anySlotOfSpecies = TRUE;
+    return TRUE;
+}
+
+// Shiny PID first, then IVs with at least 'need' 31s, then a legal frame.
+static bool8 DexNavSearchShiny(u8 need, u8 syncNature, u16 budget, struct DexNavMon *out)
+{
+    u32 seeds[MAX_PID_SEEDS];
+    u32 pid, lo, hiBase, iv1, iv2;
+    u32 shinyXor = GetPlayerShinyXor();
+    u16 solves = 0;
+    u8 count, n, w, wEnd, n0, nature, level;
+
+    while (solves < budget)
+    {
+        lo = Random();
+        hiBase = (shinyXor ^ lo) & 0xFFFF & ~(SHINY_ODDS - 1);
+        n0 = FastMod25(hiBase * 11 + lo);
+        if (syncNature < NUM_NATURES)
+        {
+            w = FastMod25((syncNature + 25 - n0) * 16);
+            if (w >= SHINY_ODDS)
+                continue;
+            wEnd = w + 1;
+        }
+        else
+        {
+            w = 0;
+            wEnd = SHINY_ODDS;
+        }
+
+        for (; w < wEnd; w++)
+        {
+            nature = FastMod25(n0 + 11 * w);
+            pid = ((hiBase | w) << 16) | lo;
+            count = SolveMethod1Seeds(pid, seeds);
+            solves++;
+            for (n = 0; n < count; n++)
+            {
+                if (!GetPerfectIvsAfterPid(seeds[n], need, &iv1, &iv2))
+                    continue;
+                if (WildShinyFindFrame(seeds[n], nature, syncNature < NUM_NATURES, &level))
+                {
+                    out->pid = pid;
+                    out->iv1 = iv1;
+                    out->iv2 = iv2;
+                    out->level = level;
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+
+static bool8 DexNavTryIvFirstPid(u32 pid, u32 pidSeed, u32 iv1, u32 iv2, u8 syncNature, struct DexNavMon *out)
+{
+    u8 nature = FastMod25(pid);
+    u8 level;
+
+    if (syncNature < NUM_NATURES && nature != syncNature)
+        return FALSE;
+    if (!WildShinyFindFrame(pidSeed, nature, syncNature < NUM_NATURES, &level))
+        return FALSE;
+
+    out->pid = pid;
+    out->iv1 = iv1;
+    out->iv2 = iv2;
+    out->level = level;
+    return TRUE;
+}
+
+// IV words first: 'need' random stats are set to 31, the states that output the
+// two IV words are solved for, and the PID is whatever came just before them.
+static bool8 DexNavSearchIvFirst(u8 need, u8 syncNature, u16 budget, struct DexNavMon *out)
+{
+    u32 seeds[MAX_PID_SEEDS];
+    u32 a, b, s, loState, hiState, pid;
+    u16 solves;
+    u8 mask, k, stat, count, n;
+
+    for (solves = 0; solves < budget; solves++)
+    {
+        a = Random();
+        b = Random();
+        for (mask = 0, k = 0; k < need;)
+        {
+            stat = Random() % NUM_STATS;
+            if (mask & (1 << stat))
+                continue;
+            mask |= 1 << stat;
+            k++;
+            if (stat < 3)
+                a |= MAX_IV_MASK << (5 * stat);
+            else
+                b |= MAX_IV_MASK << (5 * (stat - 3));
+        }
+
+        count = SolveMethod1Seeds((b << 16) | a, seeds);
+        for (n = 0; n < count; n++)
+        {
+            s = seeds[n]; // state just before the first IV call
+
+            // Method 1: PID low, PID high, IV1, IV2
+            hiState = s;
+            loState = LCRNG_PREV(hiState);
+            pid = (hiState & 0xFFFF0000) | (loState >> 16);
+            if (DexNavTryIvFirstPid(pid, LCRNG_PREV(loState), a, b, syncNature, out))
+                return TRUE;
+
+            // Method 2: PID low, PID high, (unused), IV1, IV2
+            hiState = LCRNG_PREV(s);
+            loState = LCRNG_PREV(hiState);
+            pid = (hiState & 0xFFFF0000) | (loState >> 16);
+            if (DexNavTryIvFirstPid(pid, LCRNG_PREV(loState), a, b, syncNature, out))
+                return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// Always succeeds: plays a vanilla Emerald encounter forwards from a seed whose
+// slot call lands on a slot holding the species.
+static void DexNavBuildForwardFrame(u8 syncNature, struct DexNavMon *out)
+{
+    struct WildShinyContext *ctx = &sWildShinyCtx;
+    u32 seeds[MAX_PID_SEEDS];
+    u32 state, lo, hi, pid;
+    u16 slotRand, levelRand;
+    u8 slot, nature, count;
+
+    for (;;)
+    {
+        slotRand = Random();
+        if (ctx->type == WILD_SHINY_WATER)
+            slot = WildMonIndexFromRand_WaterRock(slotRand % ENCOUNTER_CHANCE_WATER_MONS_TOTAL);
+        else
+            slot = WildMonIndexFromRand_Land(slotRand % ENCOUNTER_CHANCE_LAND_MONS_TOTAL);
+        if (ctx->mons[slot].species != ctx->species)
+            continue;
+        levelRand = Random();
+        count = SolveMethod1Seeds(((u32)levelRand << 16) | slotRand, seeds);
+        if (count == 0)
+            continue;
+        state = seeds[0];
+        break;
+    }
+
+    state = LCRNG_MULT * state + LCRNG_ADD; // slot
+    state = LCRNG_MULT * state + LCRNG_ADD; // level
+    if (ctx->safari)
+        state = LCRNG_MULT * state + LCRNG_ADD; // unused Safari Zone call
+    state = LCRNG_MULT * state + LCRNG_ADD;
+    if (syncNature < NUM_NATURES && ((state >> 16) & 1) == 0)
+    {
+        nature = syncNature; // Synchronize proc passed
+    }
+    else
+    {
+        if (syncNature < NUM_NATURES)
+            state = LCRNG_MULT * state + LCRNG_ADD; // proc failed, nature call follows
+        nature = FastMod25(state >> 16);
+    }
+
+    do
+    {
+        state = LCRNG_MULT * state + LCRNG_ADD;
+        lo = state >> 16;
+        state = LCRNG_MULT * state + LCRNG_ADD;
+        hi = state >> 16;
+        pid = (hi << 16) | lo;
+    } while (FastMod25(pid) != nature);
+
+    out->pid = pid;
+    state = LCRNG_MULT * state + LCRNG_ADD;
+    out->iv1 = state >> 16;
+    state = LCRNG_MULT * state + LCRNG_ADD;
+    out->iv2 = state >> 16;
+    out->level = WildMonLevelFromRand(&ctx->mons[slot], levelRand);
+}
+
+bool8 DexNav_GenerateLegalMon(u16 species, u8 environment, u8 potential, bool8 wantShiny, struct DexNavMon *out)
+{
+    u8 syncNature, need;
+    bool8 found = FALSE;
+
+    if (!DexNavSetFrameContext(species, environment))
+        return FALSE;
+
+    syncNature = GetWildShinySyncNature();
+    if (potential > 3)
+        potential = 3;
+
+    if (wantShiny)
+    {
+        // Shinies keep this hack's rule of at least two perfect IVs.
+        for (need = max(potential, 2); need >= 2 && !found; need--)
+            found = DexNavSearchShiny(need, syncNature, DEXNAV_SHINY_BUDGET, out);
+        if (!found && syncNature < NUM_NATURES)
+            found = DexNavSearchShiny(2, NUM_NATURES, DEXNAV_SHINY_BUDGET, out);
+        if (!found)
+        {
+            u8 level;
+            found = TryBuildLegalWildShiny(GetPlayerShinyXor(), &out->pid, &out->iv1, &out->iv2, &level);
+            out->level = level;
+            sWildShinyCtx.anySlotOfSpecies = TRUE;
+        }
+    }
+
+    if (!found)
+    {
+        for (need = potential; !found; need--)
+        {
+            found = DexNavSearchIvFirst(need, syncNature, DEXNAV_IV_FIRST_BUDGET, out);
+            if (!found && syncNature < NUM_NATURES)
+                found = DexNavSearchIvFirst(need, NUM_NATURES, DEXNAV_IV_FIRST_BUDGET, out);
+            if (need == 0)
+                break;
+        }
+        if (!found)
+            DexNavBuildForwardFrame(syncNature, out);
+    }
+
+    out->shiny = DexNav_IsShinyPid(out->pid);
+    out->potential = min(potential, CountPerfectIvs(out->iv1, out->iv2));
+    ClearWildShinyContext();
+    return TRUE;
+}
+// ---- END DEXNAV_LEGAL ----
+
 static u16 GetCurrentMapWildMonHeaderId(void)
 {
     u16 i;
@@ -628,6 +995,11 @@ static u16 GetCurrentMapWildMonHeaderId(void)
     }
 
     return HEADER_NONE;
+}
+
+u16 DexNav_GetCurrentMapWildMonHeaderId(void)
+{
+    return GetCurrentMapWildMonHeaderId(); // HEADER_NONE (0xFFFF) when the map has no table
 }
 
 static u8 PickWildMonNature(void)
@@ -837,6 +1209,10 @@ bool8 StandardWildEncounter(u16 curMetatileBehavior, u16 prevMetatileBehavior)
 {
     u16 headerId;
     struct Roamer *roamer;
+
+    // No random battles while sneaking up on a DexNav Pokémon.
+    if (DexNav_IsSearchActive())
+        return FALSE;
 
     if (sWildEncountersDisabled == TRUE)
         return FALSE;

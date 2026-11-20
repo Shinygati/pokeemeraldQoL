@@ -1,4 +1,5 @@
 #include "global.h"
+#include "dexnav.h"
 #include "malloc.h"
 #include "task.h"
 #include "main.h"
@@ -54,7 +55,7 @@ const struct PokenavCallbacks PokenavMenuCallbacks[15] =
 {
     [POKENAV_MAIN_MENU - POKENAV_MENU_IDS_START] =
     {
-        .init = PokenavCallback_Init_MainMenuCursorOnMap,
+        .init = PokenavCallback_Init_MainMenuCursorOnDexNav,
         .callback = GetMenuHandlerCallback,
         .open = OpenPokenavMenuInitial,
         .createLoopTask = CreateMenuHandlerLoopedTask,
@@ -496,6 +497,8 @@ static void Task_Pokenav(u8 taskId)
             FreePokenavResources();
             if (calledFromScript)
                 SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
+            else if (gDexNavFromPokenav)
+                OpenDexNavFromPokenav();
             else
                 if (gSysPcFromPokenav)
                     SetMainCallback2(CB2_ReturnToField);

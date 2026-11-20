@@ -1065,7 +1065,7 @@ struct SaveBlock1
     /*0x31DC*/ struct Roamer roamer;
     /*0x31F8*/ struct EnigmaBerry enigmaBerry;
     /*0x322C*/ struct MysteryGiftSave mysteryGift;
-    /*0x3598*/ u8 unused_3598[0x180];
+    /*0x3598*/ u8 dexNavSearchLevels[0x180]; // DexNav: 128 packed 3-byte {national dex no., search level} entries (was unused)
     /*0x3718*/ u32 trainerHillTimes[NUM_TRAINER_HILL_MODES];
     /*0x3728*/ struct RamScript ramScript;
     /*0x3B14*/ struct RecordMixingGift recordMixingGift;
@@ -1073,7 +1073,10 @@ struct SaveBlock1
     /*0x3B58*/ LilycoveLady lilycoveLady;
     /*0x3B98*/ struct TrainerNameRecord trainerNameRecords[20];
     /*0x3C88*/ u8 registeredTexts[UNION_ROOM_KB_ROW_COUNT][21];
-    /*0x3D5A*/ u8 unused_3D5A[10];
+    /*0x3D5A*/ u8 dexNavChain; // DexNav chain (was unused)
+    /*0x3D5B*/ u8 unused_3D5B;
+    /*0x3D5C*/ u16 dexNavRegistered; // DexNav bookmark: species | (environment << 14) (was unused)
+    /*0x3D5E*/ u8 unused_3D5E[6];
     /*0x3D64*/ struct TrainerHillSave trainerHill;
     /*0x3D70*/ struct WaldaPhrase waldaPhrase;
     // sizeof: 0x3D88

@@ -2967,6 +2967,8 @@ extern const u8 gText_CheckMapOfHoenn[];
 extern const u8 gText_CheckPokemonInDetail[];
 extern const u8 gText_CallRegisteredTrainer[];
 extern const u8 gText_Pokenav_Access_PC[];
+extern const u8 gText_DexNavSearchForWildPokemon[];
+extern const u8 gText_DexNavNoWildPokemonHere[];
 extern const u8 gText_CheckObtainedRibbons[];
 extern const u8 gText_PutAwayPokenav[];
 extern const u8 gText_CheckPartyPokemonInDetail[];

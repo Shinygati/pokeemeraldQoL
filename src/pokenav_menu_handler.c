@@ -9,6 +9,7 @@
 #include "script.h"
 #include "overworld.h"
 #include "event_scripts.h"
+#include "dexnav.h"
 
 struct Pokenav_Menu
 {
@@ -41,9 +42,9 @@ extern const u8 EventScript_PCMainMenu[];
 // Number of entries - 1 for that menu type
 static const u8 sLastCursorPositions[] =
 {
-    [POKENAV_MENU_TYPE_DEFAULT]           = 2,
-    [POKENAV_MENU_TYPE_UNLOCK_MC]         = 3,
-    [POKENAV_MENU_TYPE_UNLOCK_MC_RIBBONS] = 4,
+    [POKENAV_MENU_TYPE_DEFAULT]           = 3,
+    [POKENAV_MENU_TYPE_UNLOCK_MC]         = 4,
+    [POKENAV_MENU_TYPE_UNLOCK_MC_RIBBONS] = 5,
     [POKENAV_MENU_TYPE_CONDITION]         = 3,
     [POKENAV_MENU_TYPE_CONDITION_SEARCH]  = 5
 };
@@ -52,24 +53,27 @@ static const u8 sMenuItems[][MAX_POKENAV_MENUITEMS] =
 {
     [POKENAV_MENU_TYPE_DEFAULT] =
     {
+        POKENAV_MENUITEM_DEXNAV,
         POKENAV_MENUITEM_MAP,
         POKENAV_MENUITEM_CONDITION,
-        [2 ... MAX_POKENAV_MENUITEMS - 1] = POKENAV_MENUITEM_SWITCH_OFF
+        [3 ... MAX_POKENAV_MENUITEMS - 1] = POKENAV_MENUITEM_SWITCH_OFF
     },
     [POKENAV_MENU_TYPE_UNLOCK_MC] =
     {
+        POKENAV_MENUITEM_DEXNAV,
         POKENAV_MENUITEM_MAP,
         POKENAV_MENUITEM_CONDITION,
         POKENAV_MENUITEM_MATCH_CALL,
-        [3 ... MAX_POKENAV_MENUITEMS - 1] = POKENAV_MENUITEM_SWITCH_OFF
+        [4 ... MAX_POKENAV_MENUITEMS - 1] = POKENAV_MENUITEM_SWITCH_OFF
     },
     [POKENAV_MENU_TYPE_UNLOCK_MC_RIBBONS] =
     {
+        POKENAV_MENUITEM_DEXNAV,
         POKENAV_MENUITEM_MAP,
         POKENAV_MENUITEM_CONDITION,
         POKENAV_MENUITEM_MATCH_CALL,
         POKENAV_MENUITEM_RIBBONS,
-        [4 ... MAX_POKENAV_MENUITEMS - 1] = POKENAV_MENUITEM_SWITCH_OFF
+        POKENAV_MENUITEM_SWITCH_OFF
     },
     [POKENAV_MENU_TYPE_CONDITION] =
     {
@@ -112,8 +116,22 @@ bool32 PokenavCallback_Init_MainMenuCursorOnMap(void)
         return FALSE;
 
     menu->menuType = GetPokenavMainMenuType();
-    menu->cursorPos = POKENAV_MENUITEM_MAP;
+    menu->cursorPos = 1; // Hoenn Map (DexNav is first)
     menu->currMenuItem = POKENAV_MENUITEM_MAP;
+    menu->helpBarIndex = HELPBAR_NONE;
+    SetMenuInputHandler(menu);
+    return TRUE;
+}
+
+bool32 PokenavCallback_Init_MainMenuCursorOnDexNav(void)
+{
+    struct Pokenav_Menu *menu = AllocSubstruct(POKENAV_SUBSTRUCT_MAIN_MENU_HANDLER, sizeof(struct Pokenav_Menu));
+    if (!menu)
+        return FALSE;
+
+    menu->menuType = GetPokenavMainMenuType();
+    menu->cursorPos = 0;
+    menu->currMenuItem = POKENAV_MENUITEM_DEXNAV;
     menu->helpBarIndex = HELPBAR_NONE;
     SetMenuInputHandler(menu);
     return TRUE;
@@ -126,7 +144,7 @@ bool32 PokenavCallback_Init_MainMenuCursorOnMatchCall(void)
         return FALSE;
 
     menu->menuType = GetPokenavMainMenuType();
-    menu->cursorPos = POKENAV_MENUITEM_MATCH_CALL;
+    menu->cursorPos = 3; // Match Call
     menu->currMenuItem = POKENAV_MENUITEM_MATCH_CALL;
     menu->helpBarIndex = HELPBAR_NONE;
     SetMenuInputHandler(menu);
@@ -140,7 +158,7 @@ bool32 PokenavCallback_Init_MainMenuCursorOnRibbons(void)
         return FALSE;
 
     menu->menuType = GetPokenavMainMenuType();
-    menu->cursorPos = POKENAV_MENUITEM_RIBBONS;
+    menu->cursorPos = 4; // Ribbons
     menu->currMenuItem = POKENAV_MENUITEM_RIBBONS;
     SetMenuInputHandler(menu);
     return TRUE;
@@ -228,6 +246,14 @@ static u32 HandleMainMenuInput(struct Pokenav_Menu *menu)
     {
         switch (sMenuItems[menu->menuType][menu->cursorPos])
         {
+        case POKENAV_MENUITEM_DEXNAV:
+            if (DexNav_MapHasEncounters())
+            {
+                gDexNavFromPokenav = TRUE;
+                return POKENAV_MENU_FUNC_EXIT;
+            }
+            menu->callback = HandleCantOpenRibbonsInput;
+            return POKENAV_MENU_FUNC_DEXNAV_UNAVAILABLE;
         case POKENAV_MENUITEM_MAP:
             menu->helpBarIndex = gSaveBlock2Ptr->regionMapZoom ? HELPBAR_MAP_ZOOMED_IN : HELPBAR_MAP_ZOOMED_OUT;
             SetMenuIdAndCB(menu, POKENAV_REGION_MAP);
@@ -494,7 +520,7 @@ static u32 GetMenuId(struct Pokenav_Menu *menu)
 static void ReturnToMainMenu(struct Pokenav_Menu *menu)
 {
     menu->menuType = GetPokenavMainMenuType();
-    menu->cursorPos = 1;
+    menu->cursorPos = 2; // Condition
     menu->currMenuItem = sMenuItems[menu->menuType][menu->cursorPos];
     menu->callback = HandleMainMenuInput;
 }

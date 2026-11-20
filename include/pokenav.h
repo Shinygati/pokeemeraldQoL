@@ -163,6 +163,7 @@ enum
     POKENAV_MENUITEM_CONDITION_SEARCH_SMART,
     POKENAV_MENUITEM_CONDITION_SEARCH_TOUGH,
     POKENAV_MENUITEM_CONDITION_SEARCH_CANCEL,
+    POKENAV_MENUITEM_DEXNAV,
 };
 
 // Max menu options (condition search uses 6)
@@ -249,6 +250,7 @@ enum RegionMapFuncIds
     POKENAV_MENU_FUNC_RESHOW_DESCRIPTION,
     POKENAV_MENU_FUNC_OPEN_FEATURE,
 	POKENAV_MENU_FUNC_CANNOT_ACCESS_PC,
+    POKENAV_MENU_FUNC_DEXNAV_UNAVAILABLE,
 };
 
 enum
@@ -387,6 +389,7 @@ void ShutdownPokenav(void);
 
 // pokenav_menu_handler.c
 bool32 PokenavCallback_Init_MainMenuCursorOnMap(void);
+bool32 PokenavCallback_Init_MainMenuCursorOnDexNav(void);
 bool32 PokenavCallback_Init_MainMenuCursorOnMatchCall(void);
 bool32 PokenavCallback_Init_MainMenuCursorOnRibbons(void);
 bool32 PokenavCallback_Init_ConditionMenu(void);

@@ -315,7 +315,7 @@ static void HandleInputChooseAction(void)
             ActionSelectionCreateCursorAt(gActionSelectionCursor[gActiveBattler], 0);
         }
     }
-    else if (JOY_NEW(B_BUTTON) || gPlayerDpadHoldFrames > 59)
+    else if (JOY_NEW(B_BUTTON)) // vanilla also backed out after holding the D-pad for 1 s in L=A mode; removed
     {
         if ((gBattleTypeFlags & BATTLE_TYPE_DOUBLE)
          && GetBattlerPosition(gActiveBattler) == B_POSITION_PLAYER_RIGHT
@@ -381,7 +381,7 @@ static void HandleInputChooseTarget(void)
         EndBounceEffect(gMultiUsePlayerCursor, BOUNCE_HEALTHBOX);
         PlayerBufferExecCompleted();
     }
-    else if (JOY_NEW(B_BUTTON) || gPlayerDpadHoldFrames > 59)
+    else if (JOY_NEW(B_BUTTON)) // vanilla also backed out after holding the D-pad for 1 s in L=A mode; removed
     {
         PlaySE(SE_SELECT);
         gSprites[gBattlerSpriteIds[gMultiUsePlayerCursor]].callback = SpriteCB_HideAsMoveTarget;
@@ -552,7 +552,7 @@ static void HandleInputChooseMove(void)
             gSprites[gBattlerSpriteIds[gMultiUsePlayerCursor]].callback = SpriteCB_ShowAsMoveTarget;
         }
     }
-    else if (JOY_NEW(B_BUTTON) || gPlayerDpadHoldFrames > 59)
+    else if (JOY_NEW(B_BUTTON)) // vanilla also backed out after holding the D-pad for 1 s in L=A mode; removed
     {
         PlaySE(SE_SELECT);
         BtlController_EmitTwoReturnValues(B_COMM_TO_ENGINE, 10, 0xFFFF);

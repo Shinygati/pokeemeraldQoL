@@ -86,6 +86,10 @@ static u32 ivValue2;
 static u8 sShinyLevelOverride; // set when a legal wild shiny needs a different level from the same slot
 static u16 sLastCaughtSpecies;
 static u16 sShinyChainCount;
+static bool8 sForcedPidIvsActive; // DexNav: next CreateBoxMon uses an exact, pre-built PID/IV frame
+static u32 sForcedPid;
+static u32 sForcedIv1;
+static u32 sForcedIv2;
 extern const u16 gEggMoves[];
 
 EWRAM_DATA static u8 sLearningMoveTableID = 0;
@@ -2289,6 +2293,14 @@ static u32 GetTrainerShinyValue(void)
   
 }
 
+void SetNextMonFixedPidAndIvs(u32 personality, u32 ivWord1, u32 ivWord2)
+{
+    sForcedPid = personality;
+    sForcedIv1 = ivWord1;
+    sForcedIv2 = ivWord2;
+    sForcedPidIvsActive = TRUE;
+}
+
 void ResetShinyChain(void)
 {
     sLastCaughtSpecies = 0;
@@ -2642,7 +2654,18 @@ void CreateBoxMon(struct BoxPokemon *boxMon, u16 species, u8 level, u8 fixedIV, 
 
     ZeroBoxMonData(boxMon);
 
-    if (!hasFixedPersonality)
+    if (sForcedPidIvsActive)
+    {
+        // The PID and IV words were generated together as one legal RNG frame
+        // (DexNav), so they must be used exactly as given.
+        sForcedPidIvsActive = FALSE;
+        sShinyLevelOverride = 0;
+        personality = sForcedPid;
+        ivValue1 = sForcedIv1;
+        ivValue2 = sForcedIv2;
+        fixedIV = USE_RANDOM_IVS;
+    }
+    else if (!hasFixedPersonality)
     {
         personality = RollShinyPersonalityChance(species, Random() % NUM_NATURES, FALSE, FALSE, 0);
     }

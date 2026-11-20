@@ -38,4 +38,24 @@ u16 GetLocalWaterMon(void);
 bool8 UpdateRepelCounter(void);
 bool8 TryBuildLegalWildShiny(u32 shinyXor, u32 *pidOut, u32 *iv1Out, u32 *iv2Out, u8 *levelOut);
 
+// DexNav
+#define DEXNAV_ENV_LAND  0
+#define DEXNAV_ENV_WATER 1
+
+struct DexNavMon
+{
+    u32 pid;
+    u32 iv1; // HP / Atk / Def, as the game's IV RNG word
+    u32 iv2; // Spe / SpA / SpD
+    u8 level;
+    u8 potential; // guaranteed perfect IVs (stars)
+    bool8 shiny;
+};
+
+bool8 DexNav_GenerateLegalMon(u16 species, u8 environment, u8 potential, bool8 wantShiny, struct DexNavMon *out);
+u8 DexNav_CountPerfectIvs(u32 iv1, u32 iv2);
+bool8 DexNav_IsShinyPid(u32 pid);
+u16 DexNav_GetCurrentMapWildMonHeaderId(void);
+bool8 DexNav_IsSearchActive(void);
+
 #endif // GUARD_WILD_ENCOUNTER_H
