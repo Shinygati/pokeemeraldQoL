@@ -436,13 +436,14 @@ static bool8 ShouldSwitch(void)
     s32 i;
     s32 availableToSwitch;
 
-    if (gBattleMons[*(activeBattlerPtr = &gActiveBattler)].status2 & (STATUS2_WRAPPED | STATUS2_ESCAPE_PREVENTION))
+    if ((gBattleMons[*(activeBattlerPtr = &gActiveBattler)].status2 & (STATUS2_WRAPPED | STATUS2_ESCAPE_PREVENTION))
+     && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST)) // Gen 6: Ghost types can't be trapped
         return FALSE;
     if (gStatuses3[gActiveBattler] & STATUS3_ROOTED)
         return FALSE;
-    if (ABILITY_ON_OPPOSING_FIELD(gActiveBattler, ABILITY_SHADOW_TAG))
+    if (ABILITY_ON_OPPOSING_FIELD(gActiveBattler, ABILITY_SHADOW_TAG) && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST))
         return FALSE;
-    if (ABILITY_ON_OPPOSING_FIELD(gActiveBattler, ABILITY_ARENA_TRAP)) // Misses the flying type and Levitate check.
+    if (ABILITY_ON_OPPOSING_FIELD(gActiveBattler, ABILITY_ARENA_TRAP) && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST)) // Misses the flying type and Levitate check.
         return FALSE;
     if (ABILITY_ON_FIELD2(ABILITY_MAGNET_PULL))
     {

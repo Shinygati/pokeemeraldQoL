@@ -1012,6 +1012,7 @@ BattleScript_EffectParalyze::
 	jumpifstatus2 BS_TARGET, STATUS2_SUBSTITUTE, BattleScript_ButItFailed
 	typecalc
 	jumpifmovehadnoeffect BattleScript_ButItFailed
+	jumpiftype BS_TARGET, TYPE_ELECTRIC, BattleScript_NotAffected @ Gen 6: Electric types can't be paralyzed
 	jumpifstatus BS_TARGET, STATUS1_PARALYSIS, BattleScript_AlreadyParalyzed
 	jumpifstatus BS_TARGET, STATUS1_ANY, BattleScript_ButItFailed
 	accuracycheck BattleScript_ButItFailed, ACC_CURR_MOVE

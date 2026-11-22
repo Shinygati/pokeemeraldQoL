@@ -326,7 +326,32 @@ void RunTextPrinters(void)
         {
             if (sTextPrinters[i].active)
             {
-                u16 renderCmd = RenderFont(&sTextPrinters[i]);
+                u16 renderCmd;
+
+                // Holding A+B together prints the rest of the text at once, up to the next
+                // point where it waits for a button press or scrolls.
+                if (gTextFlags.canABSpeedUpPrint && !gTextFlags.autoScroll
+                 && IsTextSkipHeld())
+                {
+                    struct TextPrinterSubStruct *subStruct = (struct TextPrinterSubStruct *)(&sTextPrinters[i].subStructFields);
+                    bool8 printed = FALSE;
+                    u32 n;
+
+                    subStruct->hasPrintBeenSpedUp = TRUE;
+                    renderCmd = RenderFont(&sTextPrinters[i]);
+                    for (n = 0; n < 1024 && renderCmd == RENDER_PRINT; n++)
+                    {
+                        printed = TRUE;
+                        renderCmd = RenderFont(&sTextPrinters[i]);
+                    }
+                    if (printed && renderCmd != RENDER_PRINT)
+                        CopyWindowToVram(sTextPrinters[i].printerTemplate.windowId, COPYWIN_GFX);
+                }
+                else
+                {
+                    renderCmd = RenderFont(&sTextPrinters[i]);
+                }
+
                 switch (renderCmd)
                 {
                 case RENDER_PRINT:
@@ -862,6 +887,30 @@ bool8 TextPrinterWaitAutoMode(struct TextPrinter *textPrinter)
     }
 }
 
+// Holding A+B together skips through text: it prints instantly (RunTextPrinters)
+// and continues past every "press a button" wait. Menus still need a real press.
+bool8 IsTextSkipHeld(void)
+{
+    return (gMain.heldKeys & (A_BUTTON | B_BUTTON)) == (A_BUTTON | B_BUTTON);
+}
+
+// Called once per frame by whatever is waiting for a button press. TRUE once
+// A+B has been held for TEXT_SKIP_DELAY_FRAMES at this wait.
+static EWRAM_DATA u8 sTextSkipTimer = 0;
+
+bool8 TextSkipWaitDone(void)
+{
+    if (!IsTextSkipHeld())
+    {
+        sTextSkipTimer = 0;
+        return FALSE;
+    }
+    if (++sTextSkipTimer < TEXT_SKIP_DELAY_FRAMES)
+        return FALSE;
+    sTextSkipTimer = 0;
+    return TRUE;
+}
+
 bool16 TextPrinterWaitWithDownArrow(struct TextPrinter *textPrinter)
 {
     bool8 result = FALSE;
@@ -872,7 +921,7 @@ bool16 TextPrinterWaitWithDownArrow(struct TextPrinter *textPrinter)
     else
     {
         TextPrinterDrawDownArrow(textPrinter);
-        if (JOY_NEW(A_BUTTON | B_BUTTON))
+        if (JOY_NEW(A_BUTTON | B_BUTTON) || TextSkipWaitDone())
         {
             result = TRUE;
             PlaySE(SE_SELECT);
@@ -890,7 +939,7 @@ bool16 TextPrinterWait(struct TextPrinter *textPrinter)
     }
     else
     {
-        if (JOY_NEW(A_BUTTON | B_BUTTON))
+        if (JOY_NEW(A_BUTTON | B_BUTTON) || TextSkipWaitDone())
         {
             result = TRUE;
             PlaySE(SE_SELECT);

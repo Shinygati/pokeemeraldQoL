@@ -166,6 +166,10 @@ enum
     LAG_SLAVE,
 };
 
+// Written into LinkPlayer.neverRead (unused, 0 in the retail games) so two
+// copies of this hack can tell they're linked to each other.
+#define LINK_ROMHACK_MAGIC 0xC7
+
 struct LinkPlayer
 {
     /* 0x00 */ u16 version;
@@ -296,6 +300,7 @@ void SetSuppressLinkErrorMessage(bool8 flag);
 void ConvertLinkPlayerName(struct LinkPlayer *player);
 void ClearSavedLinkPlayers(void);
 void SetLinkErrorBuffer(u32 status, u8 lastSendQueueCount, u8 lastRecvQueueCount, bool8 disconnected);
+bool8 IsLinkPartnerSameRomhack(void);
 void LocalLinkPlayerToBlock(void);
 void LinkPlayerFromBlock(u32 who);
 bool32 Link_AnyPartnersPlayingFRLG_JP(void);

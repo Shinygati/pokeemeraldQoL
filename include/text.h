@@ -151,6 +151,11 @@ void TextPrinterInitDownArrowCounters(struct TextPrinter *textPrinter);
 void TextPrinterDrawDownArrow(struct TextPrinter *textPrinter);
 void TextPrinterClearDownArrow(struct TextPrinter *textPrinter);
 bool8 TextPrinterWaitAutoMode(struct TextPrinter *textPrinter);
+// Holding A+B prints text instantly and continues past each "press a button"
+// wait after this many frames (30 = half a second, 60 = 1 second). Set to 1 for no pause.
+#define TEXT_SKIP_DELAY_FRAMES 10
+bool8 IsTextSkipHeld(void);
+bool8 TextSkipWaitDone(void);
 bool16 TextPrinterWaitWithDownArrow(struct TextPrinter *textPrinter);
 bool16 TextPrinterWait(struct TextPrinter *textPrinter);
 void DrawDownArrow(u8 windowId, u16 x, u16 y, u8 bgColor, bool8 drawArrow, u8 *counter, u8 *yCoordIndex);

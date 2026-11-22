@@ -1097,6 +1097,20 @@ static bool8 AccuracyCalcHelper(u16 move)
     return FALSE;
 }
 
+static bool8 IsPowderMove(u16 move)
+{
+    switch (move)
+    {
+    case MOVE_SLEEP_POWDER:
+    case MOVE_STUN_SPORE:
+    case MOVE_POISON_POWDER:
+    case MOVE_SPORE:
+    case MOVE_COTTON_SPORE:
+        return TRUE;
+    }
+    return FALSE;
+}
+
 static void Cmd_accuracycheck(void)
 {
     u16 move = T2_READ_16(gBattlescriptCurrInstr + 5);
@@ -1123,6 +1137,13 @@ static void Cmd_accuracycheck(void)
 
         if (JumpIfMoveAffectedByProtect(move))
             return;
+        // Gen 6: Grass types are immune to powder and spore moves
+        if (IsPowderMove(move) && gBattlerTarget != gBattlerAttacker && IS_BATTLER_OF_TYPE(gBattlerTarget, TYPE_GRASS))
+        {
+            gMoveResultFlags |= MOVE_RESULT_DOESNT_AFFECT_FOE;
+            gBattlescriptCurrInstr = T1_READ_PTR(gBattlescriptCurrInstr + 1);
+            return;
+        }
         if (AccuracyCalcHelper(move))
             return;
 
@@ -1952,7 +1973,7 @@ static void Cmd_datahpupdate(void)
                         gSpecialStatuses[gActiveBattler].physicalBattlerId = gBattlerTarget;
                     }
                 }
-                else if (!IS_MOVE_SPECIAL(gCurrentMove) && !(gHitMarker & HITMARKER_PASSIVE_HP_UPDATE))
+                else if (IS_MOVE_SPECIAL(gCurrentMove) && !(gHitMarker & HITMARKER_PASSIVE_HP_UPDATE))
                 {
                     // Record special damage/attacker for Mirror Coat
                     gProtectStructs[gActiveBattler].specialDmg = gHpDealt;
@@ -2394,6 +2415,9 @@ void SetMoveEffect(bool8 primary, u8 certain)
             statusChanged = TRUE;
             break;
         case STATUS1_PARALYSIS:
+            // Gen 6: Electric types can't be paralyzed (Body Slam, Static, Synchronize...)
+            if (IS_BATTLER_OF_TYPE(gEffectBattler, TYPE_ELECTRIC))
+                break;
             if (gBattleMons[gEffectBattler].ability == ABILITY_LIMBER)
             {
                 if (primary == TRUE || certain == MOVE_EFFECT_CERTAIN)
@@ -3253,6 +3277,12 @@ static void Cmd_jumpiftype(void)
         gBattlescriptCurrInstr += 7;
 }
 
+// With the Exp. Share on, the Pokémon that battled are given their EXP first
+// (each with its own message), then the rest of the party in a second pass
+// with a single "The rest of your party gained EXP. Points!" message.
+static EWRAM_DATA u8 sExpSharePass = 0;
+static EWRAM_DATA bool8 sPartyExpMsgShown = FALSE;
+
 static void Cmd_getexp(void)
 {
     u16 item;
@@ -3333,6 +3363,8 @@ static void Cmd_getexp(void)
             gBattleScripting.getexpState++;
             gBattleStruct->expGetterMonId = 0;
             gBattleStruct->sentInPokes = sentIn;
+            sExpSharePass = 0;
+            sPartyExpMsgShown = FALSE;
         }
         // fall through
     case 2: // set exp value to the poke in expgetter_id and print message
@@ -3345,8 +3377,10 @@ static void Cmd_getexp(void)
             else
                 holdEffect = GetItemHoldEffect(item);
 
-            if (!gSaveBlock2Ptr->expShare && !(gBattleStruct->sentInPokes & 1))
+            if ((!gSaveBlock2Ptr->expShare && !(gBattleStruct->sentInPokes & 1))
+             || (gSaveBlock2Ptr->expShare && (sExpSharePass == 0) != ((gBattleStruct->sentInPokes & 1) != 0)))
             {
+                // not this Pokémon's pass (or it gets no EXP)
                 *(&gBattleStruct->sentInPokes) >>= 1;
                 gBattleScripting.getexpState = 5;
                 gBattleMoveDamage = 0; // used for exp
@@ -3419,7 +3453,19 @@ static void Cmd_getexp(void)
                     PREPARE_STRING_BUFFER(gBattleTextBuff2, i);
                     PREPARE_WORD_NUMBER_BUFFER(gBattleTextBuff3, 5, gBattleMoveDamage);
 
-                    PrepareStringBattle(STRINGID_PKMNGAINEDEXP, gBattleStruct->expGetterBattlerId);
+                    if (!(gBattleStruct->sentInPokes & 1))
+                    {
+                        // Exp. Share only: one message for the whole rest of the party
+                        if (!sPartyExpMsgShown)
+                        {
+                            PrepareStringBattle(STRINGID_PARTYGAINEDEXP, gBattleStruct->expGetterBattlerId);
+                            sPartyExpMsgShown = TRUE;
+                        }
+                    }
+                    else
+                    {
+                        PrepareStringBattle(STRINGID_PKMNGAINEDEXP, gBattleStruct->expGetterBattlerId);
+                    }
                     MonGainEVs(&gPlayerParty[gBattleStruct->expGetterMonId], gBattleMons[gBattlerFainted].species);
                 }
                 gBattleStruct->sentInPokes >>= 1;
@@ -3514,9 +3560,21 @@ static void Cmd_getexp(void)
         {
             gBattleStruct->expGetterMonId++;
             if (gBattleStruct->expGetterMonId < PARTY_SIZE)
+            {
                 gBattleScripting.getexpState = 2; // loop again
+            }
+            else if (gSaveBlock2Ptr->expShare && sExpSharePass == 0)
+            {
+                // second pass: the Pokémon that didn't battle
+                sExpSharePass = 1;
+                gBattleStruct->expGetterMonId = 0;
+                gBattleStruct->sentInPokes = sentIn;
+                gBattleScripting.getexpState = 2;
+            }
             else
+            {
                 gBattleScripting.getexpState = 6; // we're done
+            }
         }
         break;
     case 6: // increment instruction
@@ -4261,7 +4319,7 @@ static void Cmd_moveend(void)
             if (gBattleMons[gBattlerTarget].status1 & STATUS1_FREEZE
                 && gBattleMons[gBattlerTarget].hp != 0
                 && gBattlerAttacker != gBattlerTarget
-                && gSpecialStatuses[gBattlerTarget].specialDmg
+                && (gSpecialStatuses[gBattlerTarget].specialDmg || gSpecialStatuses[gBattlerTarget].physicalDmg) // any damaging Fire move thaws
                 && !(gMoveResultFlags & MOVE_RESULT_NO_EFFECT)
                 && moveType == TYPE_FIRE)
             {
@@ -4712,7 +4770,7 @@ static void Cmd_jumpifcantswitch(void)
     gActiveBattler = GetBattlerForBattleScript(gBattlescriptCurrInstr[1] & ~SWITCH_IGNORE_ESCAPE_PREVENTION);
 
     if (!(gBattlescriptCurrInstr[1] & SWITCH_IGNORE_ESCAPE_PREVENTION)
-        && ((gBattleMons[gActiveBattler].status2 & (STATUS2_WRAPPED | STATUS2_ESCAPE_PREVENTION))
+        && (((gBattleMons[gActiveBattler].status2 & (STATUS2_WRAPPED | STATUS2_ESCAPE_PREVENTION)) && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST))
             || (gStatuses3[gActiveBattler] & STATUS3_ROOTED)))
     {
         gBattlescriptCurrInstr = T1_READ_PTR(gBattlescriptCurrInstr + 2);
@@ -10018,6 +10076,7 @@ static void Cmd_handleballthrow(void)
             MarkBattlerForControllerExec(gActiveBattler);
             gBattlescriptCurrInstr = BattleScript_SuccessBallThrow;
             SetMonData(&gEnemyParty[gBattlerPartyIndexes[gBattlerTarget]], MON_DATA_POKEBALL, &gLastUsedItem);
+            DexNav_OnMonCaught(&gEnemyParty[gBattlerPartyIndexes[gBattlerTarget]]); // back to its legal level
 
             if (CalculatePlayerPartyCount() == PARTY_SIZE)
                 gBattleCommunication[MULTISTRING_CHOOSER] = 0;
@@ -10043,6 +10102,7 @@ static void Cmd_handleballthrow(void)
             {
                 gBattlescriptCurrInstr = BattleScript_SuccessBallThrow;
                 SetMonData(&gEnemyParty[gBattlerPartyIndexes[gBattlerTarget]], MON_DATA_POKEBALL, &gLastUsedItem);
+                DexNav_OnMonCaught(&gEnemyParty[gBattlerPartyIndexes[gBattlerTarget]]); // back to its legal level
 
                 if (CalculatePlayerPartyCount() == PARTY_SIZE)
                     gBattleCommunication[MULTISTRING_CHOOSER] = 0;

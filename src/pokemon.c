@@ -3701,10 +3701,12 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
         gBattleMovePower = (150 * gBattleMovePower) / 100;
 
     // Self-destruct / Explosion cut defense in half
-    if (gBattleMoves[gCurrentMove].effect == EFFECT_EXPLOSION)
+    if (gBattleMoves[move].effect == EFFECT_EXPLOSION)
         defense /= 2;
 
-    if (IS_MOVE_PHYSICAL(gCurrentMove))
+    // Physical/special split: use the category of the move being calculated (not
+    // gCurrentMove, which differs for confusion self-hits and AI damage checks).
+    if (IS_MOVE_PHYSICAL(move))
     {
         if (gCritMultiplier == 2)
         {
@@ -3759,7 +3761,7 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
     if (type == TYPE_MYSTERY)
         damage = 0; // is ??? type. does 0 damage.
 
-    if (IS_MOVE_SPECIAL(gCurrentMove))
+    if (IS_MOVE_SPECIAL(move))
     {
         if (gCritMultiplier == 2)
         {
@@ -3804,46 +3806,47 @@ s32 CalculateBaseDamage(struct BattlePokemon *attacker, struct BattlePokemon *de
 
     }
 
-    return damage + 2;
-	
-		    // Flash fire triggered
-        if ((gBattleResources->flags->flags[battlerIdAtk] & RESOURCE_FLAG_FLASH_FIRE) && type == TYPE_FIRE)
-            damage = (15 * damage) / 10;
-	
-        if (WEATHER_HAS_EFFECT2)
+    // Flash Fire and weather apply to physical and special moves alike
+    // (this used to sit after the return, so it never ran)
+    if ((gBattleResources->flags->flags[battlerIdAtk] & RESOURCE_FLAG_FLASH_FIRE) && type == TYPE_FIRE)
+        damage = (15 * damage) / 10;
+
+    if (WEATHER_HAS_EFFECT2)
+    {
+        // Rain weakens Fire, boosts Water
+        if (gBattleWeather & B_WEATHER_RAIN_TEMPORARY)
         {
-            // Rain weakens Fire, boosts Water
-            if (gBattleWeather & B_WEATHER_RAIN_TEMPORARY)
+            switch (type)
             {
-                switch (type)
-                {
-                case TYPE_FIRE:
-                    damage /= 2;
-                    break;
-                case TYPE_WATER:
-                    damage = (15 * damage) / 10;
-                    break;
-                }
-            }
-
-            // Any weather except sun weakens solar beam
-            if ((gBattleWeather & (B_WEATHER_RAIN | B_WEATHER_SANDSTORM | B_WEATHER_HAIL)) && gCurrentMove == MOVE_SOLAR_BEAM)
+            case TYPE_FIRE:
                 damage /= 2;
-
-            // Sun boosts Fire, weakens Water
-            if (gBattleWeather & B_WEATHER_SUN)
-            {
-                switch (type)
-                {
-                case TYPE_FIRE:
-                    damage = (15 * damage) / 10;
-                    break;
-                case TYPE_WATER:
-                    damage /= 2;
-                    break;
-                }
+                break;
+            case TYPE_WATER:
+                damage = (15 * damage) / 10;
+                break;
             }
         }
+
+        // Any weather except sun weakens solar beam
+        if ((gBattleWeather & (B_WEATHER_RAIN | B_WEATHER_SANDSTORM | B_WEATHER_HAIL)) && move == MOVE_SOLAR_BEAM)
+            damage /= 2;
+
+        // Sun boosts Fire, weakens Water
+        if (gBattleWeather & B_WEATHER_SUN)
+        {
+            switch (type)
+            {
+            case TYPE_FIRE:
+                damage = (15 * damage) / 10;
+                break;
+            case TYPE_WATER:
+                damage /= 2;
+                break;
+            }
+        }
+    }
+
+    return damage + 2;
 }
 
 u8 CountAliveMonsInBattle(u8 caseId)
@@ -6775,6 +6778,160 @@ static u16 GetPreEvolution(u16 species){
     return SPECIES_NONE;
 }
 
+
+// ---- Trades to other games ----
+// A Pokémon that wasn't hatched from an Egg can't legally know an egg move, so
+// before one is sent to a game that isn't this hack, its egg moves are removed
+// (an egg move it could also have learned by level-up, TM/HM or tutor is kept).
+// If that leaves no moves at all, it gets a random level-up move instead.
+#define EVO_LINE_MAX 3
+
+static u8 GetSpeciesLine(u16 species, u16 *line)
+{
+    u8 n = 0;
+
+    while (species != SPECIES_NONE && n < EVO_LINE_MAX)
+    {
+        line[n++] = species;
+        species = GetPreEvolution(species);
+    }
+    return n;
+}
+
+static bool8 IsEggMoveOfSpecies(u16 species, u16 move)
+{
+    u32 i;
+
+    for (i = 0; gEggMoves[i] != EGG_MOVES_TERMINATOR; i++)
+    {
+        if (gEggMoves[i] == species + EGG_MOVES_SPECIES_OFFSET)
+        {
+            for (i++; gEggMoves[i] != EGG_MOVES_TERMINATOR && gEggMoves[i] < EGG_MOVES_SPECIES_OFFSET; i++)
+            {
+                if (gEggMoves[i] == move)
+                    return TRUE;
+            }
+            return FALSE;
+        }
+    }
+    return FALSE;
+}
+
+static bool8 LearnsByLevelUpByLevel(u16 species, u16 move, u8 level)
+{
+    u32 i;
+
+    for (i = 0; gLevelUpLearnsets[species][i] != LEVEL_UP_END; i++)
+    {
+        if ((gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID) == move
+         && ((gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_LV) >> 9) <= level)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static bool8 IsIllegalEggMoveForMon(struct Pokemon *mon, u16 move)
+{
+    u16 line[EVO_LINE_MAX];
+    u8 n = GetSpeciesLine(GetMonData(mon, MON_DATA_SPECIES), line);
+    u8 level = GetMonData(mon, MON_DATA_LEVEL);
+    bool8 isEggMove = FALSE;
+    u32 i;
+
+    for (i = 0; i < n; i++)
+    {
+        if (IsEggMoveOfSpecies(line[i], move))
+            isEggMove = TRUE;
+    }
+    if (!isEggMove)
+        return FALSE;
+
+    for (i = 0; i < n; i++)
+    {
+        if (LearnsByLevelUpByLevel(line[i], move, level) || CanSpeciesLearnTutorMove(line[i], move))
+            return FALSE;
+    }
+    for (i = 0; i < NUM_TECHNICAL_MACHINES + NUM_HIDDEN_MACHINES; i++)
+    {
+        if (ItemIdToBattleMoveId(ITEM_TM01 + i) == move && CanMonLearnTMHM(mon, i))
+            return FALSE;
+    }
+    return TRUE;
+}
+
+static u16 GetRandomLevelUpMove(u16 species, u8 level)
+{
+    u32 i, count = 0, pick;
+
+    for (i = 0; gLevelUpLearnsets[species][i] != LEVEL_UP_END; i++)
+    {
+        if (((gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_LV) >> 9) <= level)
+            count++;
+    }
+    if (count == 0)
+        return gLevelUpLearnsets[species][0] & LEVEL_UP_MOVE_ID;
+
+    pick = Random() % count;
+    for (i = 0; ; i++)
+    {
+        if (((gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_LV) >> 9) <= level && pick-- == 0)
+            return gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID;
+    }
+}
+
+void RemoveEggMovesForForeignTrade(struct Pokemon *mon)
+{
+    u16 moves[MAX_MON_MOVES];
+    u8 pp[MAX_MON_MOVES];
+    u8 bonus[MAX_MON_MOVES];
+    u8 ppBonuses, kept = 0, i;
+    u16 move;
+    bool8 removed = FALSE;
+
+    if (GetMonData(mon, MON_DATA_SPECIES) == SPECIES_NONE
+     || GetMonData(mon, MON_DATA_IS_EGG)
+     || GetMonData(mon, MON_DATA_MET_LEVEL) == 0) // met at level 0 = hatched
+        return;
+
+    ppBonuses = GetMonData(mon, MON_DATA_PP_BONUSES);
+    for (i = 0; i < MAX_MON_MOVES; i++)
+    {
+        move = GetMonData(mon, MON_DATA_MOVE1 + i);
+        if (move == MOVE_NONE)
+            continue;
+        if (IsIllegalEggMoveForMon(mon, move))
+        {
+            removed = TRUE;
+            continue;
+        }
+        moves[kept] = move;
+        pp[kept] = GetMonData(mon, MON_DATA_PP1 + i);
+        bonus[kept] = (ppBonuses >> (i * 2)) & 3;
+        kept++;
+    }
+    if (!removed)
+        return;
+
+    if (kept == 0)
+    {
+        moves[0] = GetRandomLevelUpMove(GetMonData(mon, MON_DATA_SPECIES), GetMonData(mon, MON_DATA_LEVEL));
+        pp[0] = gBattleMoves[moves[0]].pp;
+        bonus[0] = 0;
+        kept = 1;
+    }
+
+    ppBonuses = 0;
+    for (i = 0; i < MAX_MON_MOVES; i++)
+    {
+        move = (i < kept) ? moves[i] : MOVE_NONE;
+        SetMonData(mon, MON_DATA_MOVE1 + i, &move);
+        move = (i < kept) ? pp[i] : 0;
+        SetMonData(mon, MON_DATA_PP1 + i, &move);
+        if (i < kept)
+            ppBonuses |= bonus[i] << (i * 2);
+    }
+    SetMonData(mon, MON_DATA_PP_BONUSES, &ppBonuses);
+}
 
 u8 GetMoveRelearnerMoves(struct Pokemon *mon, u16 *moves)
 {

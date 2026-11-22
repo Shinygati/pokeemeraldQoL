@@ -66,6 +66,8 @@ extern const u8 EventScript_DexNavMovedTooFast[];
 extern const u8 EventScript_DexNavGotAway[];
 extern const u8 EventScript_DexNavLostSignal[];
 extern const u8 EventScript_DexNavTooDark[];
+extern const u8 EventScript_DexNavSearchOn[];
+extern const u8 EventScript_DexNavSearchOff[];
 
 #define SHINY_FLAG_BOOST 0x037 // this hack's timed shiny boost; counts as the Shiny Charm here
 
@@ -93,9 +95,20 @@ enum
     GRASS_FRAME_COUNT,
 };
 
+// Area around the player checked for walkable paths (see BuildReachableMap).
+#define REACH_RADIUS_X 12
+#define REACH_RADIUS_Y 9
+#define REACH_W (REACH_RADIUS_X * 2 + 1)
+#define REACH_H (REACH_RADIUS_Y * 2 + 1)
+#define REACH_QUEUE_SIZE 1024
+
 struct DexNavSearch
 {
     struct DexNavMon mon;
+    u8 battleLevel; // mon.level plus the ORAS chain bonus (see GetDexNavLevelBonus)
+    bool8 boosted;  // ORAS boost: +10 levels, +1 perfect IV, +4 shiny checks; shown as "!"
+    u16 reachElevations[REACH_H][REACH_W]; // bit n: reachable while at elevation n
+    u16 reachQueue[REACH_QUEUE_SIZE];
     u16 species;
     u16 searchLevel;
     u8 environment;
@@ -141,7 +154,12 @@ struct DexNavGUI
 EWRAM_DATA static struct DexNavSearch *sDexNavSearchDataPtr = NULL;
 EWRAM_DATA static struct DexNavGUI *sDexNavUiDataPtr = NULL;
 EWRAM_DATA static u8 *sBg1TilemapBuffer = NULL;
-EWRAM_DATA static bool8 sDexNavSearchActive = FALSE;
+EWRAM_DATA static bool8 sDexNavSearchActive = FALSE; // a hidden Pokémon is out
+// Search mode: the species the DexNav is looking for while you move around.
+EWRAM_DATA static bool8 sDexNavModeActive = FALSE;
+EWRAM_DATA static u16 sDexNavModeSpecies = SPECIES_NONE;
+EWRAM_DATA static u8 sDexNavModeEnv = 0;
+EWRAM_DATA static u8 sDexNavModeSteps = 0;
 EWRAM_DATA bool8 gDexnavBattle = FALSE;
 EWRAM_DATA bool8 gDexNavFromPokenav = FALSE;
 
@@ -183,6 +201,7 @@ static const u8 sText_ChainLevel[] = _("CHAIN LEVEL");
 static const u8 sText_Ability[] = _("ABILITY");
 static const u8 sText_Help[] = _("{A_BUTTON} Search  {R_BUTTON} Bookmark  {B_BUTTON} Exit");
 static const u8 sText_AbilitySlash[] = _("{STR_VAR_1}/{STR_VAR_2}");
+static const u8 sText_Boosted[] = _("!");
 static const u8 sText_MonLevel[] = _("{LV}. {STR_VAR_1}");
 static const u8 sText_Ivs[] = _("IVs {STR_VAR_1}");
 static const u8 sText_IvSeparator[] = _("/");
@@ -317,6 +336,40 @@ static void DexNavChainReset(void)
     gSaveBlock1Ptr->dexNavChain = 0;
 }
 
+// The chain belongs to one species: it only counts when searching that species.
+// (A chain saved before this was added has no species yet and is kept.)
+static u8 GetDexNavChainFor(u16 species)
+{
+    u16 chainSpecies = gSaveBlock1Ptr->dexNavChainSpecies;
+
+    if (chainSpecies == SPECIES_NONE || species == SPECIES_NONE || chainSpecies == species)
+        return gSaveBlock1Ptr->dexNavChain;
+    return 0;
+}
+
+// ORAS: hidden Pokémon get +1 level for every 5 in the chain, up to +19, and
+// back to 0 at 100; a boosted encounter (shown with "!") gets +10 more. Only the battle uses the boosted level:
+// a caught Pokémon goes back to its legal encounter-table level (see
+// DexNav_OnMonCaught), which the PID/IVs were generated for.
+static u8 GetDexNavLevelBonus(u8 chain)
+{
+    return (chain / 5) % 20;
+}
+
+static EWRAM_DATA u8 sDexNavLegalLevel = 0;
+static EWRAM_DATA bool8 sDexNavBattleShiny = FALSE;
+
+// A DexNav battle with a different species breaks the chain and starts a new one.
+static void DexNavChainSetSpecies(u16 species)
+{
+    if (gSaveBlock1Ptr->dexNavChainSpecies != species)
+    {
+        if (gSaveBlock1Ptr->dexNavChainSpecies != SPECIES_NONE)
+            DexNavChainReset();
+        gSaveBlock1Ptr->dexNavChainSpecies = species;
+    }
+}
+
 //////////////////////////
 //// ORAS ROLLS       ////
 //////////////////////////
@@ -365,16 +418,18 @@ static u8 RollPotential(u16 searchLevel, bool8 boost)
     return potential;
 }
 
-// ORAS forced shiny check: target = (6 per Search Level up to 100, 2 per level
-// up to 200, then 1 per level) / 100, compared with a 0-9999 roll. One check
-// always runs; +2 with the Shiny Charm, +4 when boosted, +5 for the 50th chain
-// encounter and +10 for the 100th. Normal odds still apply when it fails.
+// ORAS forced shiny check (1:1): target = ceil((6 per Search Level up to 100,
+// 2 per level up to 200, then 1 per level) / 100), and each check succeeds
+// when a 0-9999 roll is below it, i.e. target/10000. One check always runs;
+// +2 with the Shiny Charm, +4 when boosted, +5 on the 50th encounter of the
+// chain and +10 on the 100th (only those exact encounters). The encounter
+// number is the one about to happen: chain + 1. Normal odds still apply.
 static bool8 RollDexNavShiny(u16 searchLevel, u8 chain, bool8 boost)
 {
     u32 i, rolls, target = 0;
     u16 level = searchLevel;
-    bool8 charm = FlagGet(SHINY_FLAG_BOOST);
     u16 encounterNum = chain + 1;
+    bool8 charm = FlagGet(SHINY_FLAG_BOOST);
 
     if (level > 200)
     {
@@ -386,7 +441,8 @@ static bool8 RollDexNavShiny(u16 searchLevel, u8 chain, bool8 boost)
         target += (level * 2) - 200;
         level = 100;
     }
-    target += level * 6;   // target / 100 is the real threshold
+    target += level * 6;
+    target = (target + 99) / 100; // out of 10000
 
     rolls = 1;
     if (charm)
@@ -395,12 +451,12 @@ static bool8 RollDexNavShiny(u16 searchLevel, u8 chain, bool8 boost)
         rolls += 4;
     if (encounterNum == 50)
         rolls += 5;
-    if (encounterNum >= DEXNAV_CHAIN_MAX) // 100th, and stays there at the chain cap
+    if (encounterNum == 100)
         rolls += 10;
 
     for (i = 0; i < rolls; i++)
     {
-        if ((Random() % 10000) * 100 < target)
+        if (Random32() % 10000 < target)
             return TRUE;
     }
 
@@ -487,9 +543,11 @@ bool8 DexNav_MapHasEncounters(void)
     return (land != NULL && land->encounterRate != 0) || (water != NULL && water->encounterRate != 0);
 }
 
+// TRUE while the search mode is on or a hidden Pokémon is out: random wild
+// encounters and Match Calls wait until it's turned off.
 bool8 DexNav_IsSearchActive(void)
 {
-    return sDexNavSearchActive;
+    return sDexNavSearchActive || sDexNavModeActive;
 }
 
 /////////////////////////////
@@ -652,8 +710,10 @@ static void AddSearchWindowText(void)
 
     // species and level - always shown
     AddTextPrinterParameterized3(windowId, FONT_SMALL, WINDOW_COL_0, 0, sSearchFontColor, TEXT_SKIP_DRAW, gSpeciesNames[species]);
-    ConvertIntToDecimalStringN(gStringVar1, sDexNavSearchDataPtr->mon.level, STR_CONV_MODE_LEFT_ALIGN, 3);
+    ConvertIntToDecimalStringN(gStringVar1, sDexNavSearchDataPtr->battleLevel, STR_CONV_MODE_LEFT_ALIGN, 3);
     StringExpandPlaceholders(gStringVar4, sText_MonLevel);
+    if (sDexNavSearchDataPtr->boosted)
+        StringAppend(gStringVar4, sText_Boosted);
     AddTextPrinterParameterized3(windowId, FONT_SMALL, WINDOW_COL_LEVEL, 0, sSearchFontColor, TEXT_SKIP_DRAW, gStringVar4);
 
     if (close)
@@ -683,7 +743,7 @@ static void AddSearchWindowText(void)
         BlitBitmapToWindow(windowId, sShinyStarBitmap, 32, 15, 8, 8);
 
     // chain - always shown
-    ConvertIntToDecimalStringN(gStringVar1, gSaveBlock1Ptr->dexNavChain, STR_CONV_MODE_LEFT_ALIGN, 3);
+    ConvertIntToDecimalStringN(gStringVar1, GetDexNavChainFor(sDexNavSearchDataPtr->species), STR_CONV_MODE_LEFT_ALIGN, 3);
     StringExpandPlaceholders(gStringVar4, sText_DexNavChain);
     AddTextPrinterParameterized3(windowId, FONT_SMALL, WINDOW_COL_CHAIN, 12, sSearchFontColor, TEXT_SKIP_DRAW, gStringVar4);
 
@@ -899,12 +959,117 @@ static bool8 IsTileOccupied(s16 x, s16 y)
     return FALSE;
 }
 
+// Finds every tile the player can actually walk to (or surf to, while surfing)
+// from where they stand, so a Pokémon is never placed somewhere unreachable,
+// like a higher cave floor or the top of a cliff. Follows collision, elevation
+// changes (bridges and stairs included) and one-way ledge jumps.
+static const s8 sReachDirs[4][2] = {{0, 1}, {0, -1}, {-1, 0}, {1, 0}}; // DIR_SOUTH, NORTH, WEST, EAST order
+
+static bool8 IsJumpInDir(u8 behavior, u8 dir)
+{
+    switch (dir)
+    {
+    case 0: return MetatileBehavior_IsJumpSouth(behavior);
+    case 1: return MetatileBehavior_IsJumpNorth(behavior);
+    case 2: return MetatileBehavior_IsJumpWest(behavior);
+    default: return MetatileBehavior_IsJumpEast(behavior);
+    }
+}
+
+static bool8 IsAnyJump(u8 behavior)
+{
+    return MetatileBehavior_IsJumpSouth(behavior) || MetatileBehavior_IsJumpNorth(behavior)
+        || MetatileBehavior_IsJumpWest(behavior) || MetatileBehavior_IsJumpEast(behavior);
+}
+
+// Elevation after stepping from `elevation` onto (x, y), or 0xFF if blocked.
+static u8 StepElevation(u8 elevation, s16 x, s16 y, bool8 surfing)
+{
+    u8 tileElevation;
+
+    if (MapGridGetCollisionAt(x, y))
+        return 0xFF;
+    tileElevation = MapGridGetElevationAt(x, y);
+    if (IsElevationMismatchAt(elevation, x, y))
+    {
+        // getting on/off the water while surfing changes elevation
+        if (!surfing)
+            return 0xFF;
+        if (MetatileBehavior_IsSurfableWaterOrUnderwater(MapGridGetMetatileBehaviorAt(x, y)) == (elevation == 1))
+            return 0xFF;
+    }
+    if (tileElevation == 0 || tileElevation == 15)
+        return elevation;
+    return tileElevation;
+}
+
+static void BuildReachableMap(void)
+{
+    s16 px = gSaveBlock1Ptr->pos.x + MAP_OFFSET;
+    s16 py = gSaveBlock1Ptr->pos.y + MAP_OFFSET;
+    bool8 surfing = TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_SURFING);
+    u16 (*reach)[REACH_W] = sDexNavSearchDataPtr->reachElevations;
+    u16 *queue = sDexNavSearchDataPtr->reachQueue;
+    u32 head = 0, tail = 0;
+    u8 elevation = gObjectEvents[gPlayerAvatar.objectEventId].currentElevation;
+
+    memset(reach, 0, sizeof(sDexNavSearchDataPtr->reachElevations));
+    reach[REACH_RADIUS_Y][REACH_RADIUS_X] = 1 << elevation;
+    queue[tail++] = (REACH_RADIUS_X) | (REACH_RADIUS_Y << 5) | (elevation << 10);
+
+    while (head != tail)
+    {
+        u16 entry = queue[head];
+        u8 cx = entry & 0x1F, cy = (entry >> 5) & 0x1F, ce = (entry >> 10) & 0xF;
+        u32 d;
+
+        head = (head + 1) % REACH_QUEUE_SIZE;
+        for (d = 0; d < 4; d++)
+        {
+            s16 nx = cx + sReachDirs[d][0], ny = cy + sReachDirs[d][1];
+            u8 behavior, ne;
+
+            if (nx < 0 || nx >= REACH_W || ny < 0 || ny >= REACH_H)
+                continue;
+            behavior = MapGridGetMetatileBehaviorAt(px - REACH_RADIUS_X + nx, py - REACH_RADIUS_Y + ny);
+            if (IsAnyJump(behavior))
+            {
+                // ledges can only be jumped down, landing two tiles away
+                if (!IsJumpInDir(behavior, d))
+                    continue;
+                nx += sReachDirs[d][0];
+                ny += sReachDirs[d][1];
+                if (nx < 0 || nx >= REACH_W || ny < 0 || ny >= REACH_H)
+                    continue;
+            }
+            ne = StepElevation(ce, px - REACH_RADIUS_X + nx, py - REACH_RADIUS_Y + ny, surfing);
+            if (ne == 0xFF || (reach[ny][nx] & (1 << ne)))
+                continue;
+            if ((tail + 1) % REACH_QUEUE_SIZE == head)
+                continue; // queue full: leave this branch unexplored (never marks too much)
+            reach[ny][nx] |= 1 << ne;
+            queue[tail] = nx | (ny << 5) | (ne << 10);
+            tail = (tail + 1) % REACH_QUEUE_SIZE;
+        }
+    }
+}
+
+static bool8 IsTileReachable(s16 x, s16 y)
+{
+    s16 rx = x - (gSaveBlock1Ptr->pos.x + MAP_OFFSET) + REACH_RADIUS_X;
+    s16 ry = y - (gSaveBlock1Ptr->pos.y + MAP_OFFSET) + REACH_RADIUS_Y;
+
+    if (rx < 0 || rx >= REACH_W || ry < 0 || ry >= REACH_H)
+        return FALSE;
+    return sDexNavSearchDataPtr->reachElevations[ry][rx] != 0;
+}
+
 static bool8 IsValidDexNavTile(u8 environment, s16 x, s16 y)
 {
     u8 behavior = MapGridGetMetatileBehaviorAt(x, y);
     u8 elevation = gObjectEvents[gPlayerAvatar.objectEventId].currentElevation;
 
-    if (MapGridGetCollisionAt(x, y) || IsTileOccupied(x, y))
+    if (MapGridGetCollisionAt(x, y) || IsTileOccupied(x, y) || !IsTileReachable(x, y))
         return FALSE;
 
     if (environment == ENCOUNTER_TYPE_WATER)
@@ -935,6 +1100,8 @@ static bool8 DexNavPickTile(u8 environment, bool8 moving)
         minDist = SNEAKING_PROXIMITY + 1;
     if (moving)
         minDist = 2;
+
+    BuildReachableMap();
 
     // Pass 1: the distance of the nearest valid spot.
     for (y = py - 5; y <= py + 5; y++)
@@ -1307,6 +1474,7 @@ static void StopHiddenMonFieldEffect(void)
 #define tFrameCount data[1]
 #define tSpecies    data[2]
 #define tEnvironment data[3]
+#define tPaused     data[4]
 
 static void FreeSearchData(void)
 {
@@ -1314,11 +1482,13 @@ static void FreeSearchData(void)
     sDexNavSearchDataPtr = NULL;
 }
 
-static void EndSearchWithScript(u8 taskId, const u8 *script)
+// The Pokémon didn't turn up this time: nothing is shown, the search mode
+// carries on and tries again a few steps later.
+static void EndSearchNotFound(u8 taskId)
 {
     DestroyTask(taskId);
-    FreeSearchData();
-    ScriptContext_SetupScript(script);
+    if (sDexNavSearchDataPtr != NULL)
+        FreeSearchData();
 }
 
 static void Task_SetUpDexNavSearch(u8 taskId)
@@ -1341,13 +1511,13 @@ static void Task_InitDexNavSearch(u8 taskId)
     struct Task *task = &gTasks[taskId];
     u16 species = task->tSpecies;
     u8 environment = task->tEnvironment;
-    u8 chain = gSaveBlock1Ptr->dexNavChain;
+    u8 chain = GetDexNavChainFor(species);
     bool8 boost, shiny;
 
-    if (GetFlashLevel() > 0)
+    // too dark, or a script/menu took over since the step
+    if (GetFlashLevel() > 0 || ArePlayerFieldControlsLocked() || !sDexNavModeActive)
     {
         DestroyTask(taskId);
-        ScriptContext_SetupScript(EventScript_DexNavTooDark);
         return;
     }
 
@@ -1367,19 +1537,22 @@ static void Task_InitDexNavSearch(u8 taskId)
      || Random() % 100 >= max(GetSpeciesEncounterChance(species, environment), DEXNAV_MIN_FIND_CHANCE)
      || !DexNavPickTile(environment, FALSE))
     {
-        EndSearchWithScript(taskId, EventScript_DexNavNotFoundNearby);
+        EndSearchNotFound(taskId);
         return;
     }
 
-    // Boost: every 5th chain encounter, or a 4% chance.
-    boost = ((chain + 1) % 5 == 0 && chain + 1 < DEXNAV_CHAIN_MAX) || (Random() % 100 < 4);
+    // ORAS: every 5th encounter of the chain (the one about to happen is chain + 1)
+    // is boosted; otherwise there's a 4% chance
+    boost = ((chain + 1) % 5 == 0) || (Random32() % 100 < 4);
+    sDexNavSearchDataPtr->boosted = boost;
     shiny = RollDexNavShiny(sDexNavSearchDataPtr->searchLevel, chain, boost);
     if (!DexNav_GenerateLegalMon(species, environment, RollPotential(sDexNavSearchDataPtr->searchLevel, boost),
                                  shiny, &sDexNavSearchDataPtr->mon))
     {
-        EndSearchWithScript(taskId, EventScript_DexNavNotFoundNearby);
+        EndSearchNotFound(taskId);
         return;
     }
+    sDexNavSearchDataPtr->battleLevel = min(MAX_LEVEL, sDexNavSearchDataPtr->mon.level + GetDexNavLevelBonus(chain) + (boost ? 10 : 0));
     if (sDexNavSearchDataPtr->mon.shiny)
         gSoftResetDisabled = TRUE;
 
@@ -1397,7 +1570,7 @@ static void Task_InitDexNavSearch(u8 taskId)
 
     if (!StartHiddenMonFieldEffectAtTile())
     {
-        EndSearchWithScript(taskId, EventScript_DexNavNotFoundNearby);
+        EndSearchNotFound(taskId);
         return;
     }
 
@@ -1415,23 +1588,62 @@ static void StartDexNavTask(u16 species, u8 environment)
     gTasks[taskId].tEnvironment = environment;
 }
 
-// R in the field: search for the bookmarked species.
+static void DexNavStartSearchMode(u16 species, u8 environment)
+{
+    sDexNavModeActive = TRUE;
+    sDexNavModeSpecies = species;
+    sDexNavModeEnv = environment;
+    sDexNavModeSteps = 0;
+    StringCopy(gStringVar1, gSpeciesNames[species]);
+}
+
+// R in the field: turn the search for the bookmarked Pokémon on, or turn it off.
 bool8 TryStartDexnavSearch(void)
 {
     u16 val = gSaveBlock1Ptr->dexNavRegistered;
+    u8 taskId;
 
-    if (!FlagGet(FLAG_SYS_POKENAV_GET) || sDexNavSearchActive || FuncIsActiveTask(Task_InitDexNavSearch)
-     || (val & MASK_SPECIES) == SPECIES_NONE || ArePlayerFieldControlsLocked())
+    if (!FlagGet(FLAG_SYS_POKENAV_GET) || FuncIsActiveTask(Task_InitDexNavSearch) || ArePlayerFieldControlsLocked())
         return FALSE;
 
+    if (sDexNavModeActive)
+    {
+        sDexNavModeActive = FALSE;
+        taskId = FindTaskIdByFunc(Task_DexNavSearch);
+        if (taskId != TASK_NONE)
+            EndDexNavSearch(taskId); // it just leaves: no chain change
+        PlaySE(SE_PC_OFF);
+        ScriptContext_SetupScript(EventScript_DexNavSearchOff);
+        return TRUE;
+    }
+
+    if ((val & MASK_SPECIES) == SPECIES_NONE)
+        return FALSE;
     PlaySE(SE_DEX_SEARCH);
-    StartDexNavTask(val & MASK_SPECIES, val >> 14);
-    return FALSE; // the field script context isn't used
+    DexNavStartSearchMode(val & MASK_SPECIES, val >> 14);
+    ScriptContext_SetupScript(EventScript_DexNavSearchOn);
+    return TRUE;
+}
+
+// Every step while the search mode is on: after DEXNAV_SPAWN_MIN_STEPS steps,
+// each step has a DEXNAV_SPAWN_STEP_CHANCE% chance to try to make the Pokémon
+// turn up nearby (Task_InitDexNavSearch then applies its find chance).
+void DexNav_OnPlayerStep(void)
+{
+    if (!sDexNavModeActive || sDexNavSearchActive || FuncIsActiveTask(Task_InitDexNavSearch))
+        return;
+    if (sDexNavModeSteps < 255)
+        sDexNavModeSteps++;
+    if (sDexNavModeSteps < DEXNAV_SPAWN_MIN_STEPS || Random() % 100 >= DEXNAV_SPAWN_STEP_CHANCE)
+        return;
+    sDexNavModeSteps = 0;
+    StartDexNavTask(sDexNavModeSpecies, sDexNavModeEnv);
 }
 
 static void EndDexNavSearch(u8 taskId)
 {
     sDexNavSearchActive = FALSE;
+    gSoftResetDisabled = FALSE; // a shiny search disables it while it's out
     DestroyTask(taskId);
     if (sDexNavSearchDataPtr == NULL)
         return;
@@ -1467,14 +1679,23 @@ static void Task_DexNavSearch(u8 taskId)
     struct Task *task = &gTasks[taskId];
     u16 walked;
 
+    // Messages and other scripts (a Repel wearing off, a sign, talking to
+    // someone) just pause it, timer included. Leaving the overworld (menus,
+    // battles) ends it quietly: see DexNav_OnFieldReset and DexNav_OnBattleEnd.
     if (ArePlayerFieldControlsLocked() == TRUE)
     {
-        // A Match Call only pauses the search (calls are normally blocked
-        // during a search anyway); any other script (a trainer spotting you,
-        // a sign, etc.) ends it.
-        if (!IsMatchCallTaskActive())
-            EndDexNavSearch(taskId);
+        task->tPaused = TRUE;
         return;
+    }
+    if (task->tPaused)
+    {
+        // the message box drew over the search window: put it back
+        task->tPaused = FALSE;
+        LoadDexNavWindowGfx(sDexNavSearchDataPtr->windowId, 0x1D5, BG_PLTT_ID(14));
+        PutWindowTilemap(sDexNavSearchDataPtr->windowId);
+        DrawStdFrameWithCustomTileAndPalette(sDexNavSearchDataPtr->windowId, TRUE, 0x1D5, 14);
+        AddSearchWindowText();
+        CopyWindowToVram(sDexNavSearchDataPtr->windowId, COPYWIN_FULL);
     }
 
     // Walking too far away (and not standing in grass) loses the signal.
@@ -1486,9 +1707,10 @@ static void Task_DexNavSearch(u8 taskId)
         return;
     }
 
-    // Walking up to it is fine; running (or riding a bike) anywhere scares it off.
+    // Walking up to it is fine; running (or riding a bike) anywhere scares it off,
+    // once you've had a moment to stop (it can turn up while you're on your bike).
     if (TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_DASH | PLAYER_AVATAR_FLAG_MACH_BIKE | PLAYER_AVATAR_FLAG_ACRO_BIKE)
-     && gPlayerAvatar.tileTransitionState != T_NOT_MOVING && task->tFrameCount > 8)
+     && gPlayerAvatar.tileTransitionState != T_NOT_MOVING && task->tFrameCount > DEXNAV_SCARE_GRACE_FRAMES)
     {
         DexNavChainDecrease();
         EndDexNavSearchSetupScript(taskId, EventScript_DexNavMovedTooFast);
@@ -1510,7 +1732,10 @@ static void Task_DexNavSearch(u8 taskId)
 
         ZeroEnemyPartyMons();
         SetNextMonFixedPidAndIvs(mon->pid, mon->iv1, mon->iv2);
-        CreateMon(&gEnemyParty[0], sDexNavSearchDataPtr->species, mon->level, USE_RANDOM_IVS, FALSE, 0, OT_ID_PLAYER_ID, 0);
+        CreateMon(&gEnemyParty[0], sDexNavSearchDataPtr->species, sDexNavSearchDataPtr->battleLevel, USE_RANDOM_IVS, FALSE, 0, OT_ID_PLAYER_ID, 0);
+        sDexNavLegalLevel = mon->level;
+        sDexNavBattleShiny = mon->shiny;
+        DexNavChainSetSpecies(sDexNavSearchDataPtr->species);
         gDexnavBattle = TRUE;
         EndDexNavSearchSetupScript(taskId, EventScript_StartDexNavBattle);
         return;
@@ -1570,15 +1795,30 @@ static void Task_DexNavSearch(u8 taskId)
 #undef tProximity
 #undef tFrameCount
 
+// Called when the overworld is rebuilt after a menu (Bag, Pokémon, etc.):
+// tasks and sprites were reset, so a hidden Pokémon that was out is gone.
+// The search mode stays on and another one turns up as you walk.
+void DexNav_OnFieldReset(void)
+{
+    if (!sDexNavSearchActive)
+        return;
+    sDexNavSearchActive = FALSE;
+    gSoftResetDisabled = FALSE;
+    // its window and sprites went with the menu; only the search data is left
+    if (sDexNavSearchDataPtr != NULL)
+        FreeSearchData();
+}
+
 // Called when the map changes (warps and walking across map borders).
 void DexNav_OnMapChange(void)
 {
     u8 taskId;
 
+    // Leaving the area (any map change: routes, doors, Fly...) breaks the chain,
+    // and loses the Pokémon if a search is running.
+    DexNavChainReset();
     if (!sDexNavSearchActive)
         return;
-    // Leaving the area loses the Pokémon and breaks the chain.
-    DexNavChainReset();
     taskId = FindTaskIdByFunc(Task_DexNavSearch);
     if (taskId != TASK_NONE)
         EndDexNavSearch(taskId);
@@ -1586,17 +1826,72 @@ void DexNav_OnMapChange(void)
         sDexNavSearchActive = FALSE;
 }
 
+// Called the moment a DexNav Pokémon is caught: it goes back to its legal
+// encounter-table level (met level included) with matching EXP, stats and the
+// level-up moveset a wild Pokémon of that level has. PID, IVs and nature are
+// untouched, so it still matches its RNG frame.
+void DexNav_OnMonCaught(struct Pokemon *mon)
+{
+    u16 species = GetMonData(mon, MON_DATA_SPECIES);
+    u8 level = sDexNavLegalLevel;
+    u16 hp = GetMonData(mon, MON_DATA_HP), oldMaxHP = GetMonData(mon, MON_DATA_MAX_HP), maxHP;
+    u32 exp, i;
+    u16 none = MOVE_NONE;
+    u8 zero = 0;
+
+    if (!gDexnavBattle || level == 0 || GetMonData(mon, MON_DATA_LEVEL) == level)
+        return;
+
+    exp = gExperienceTables[gSpeciesInfo[species].growthRate][level];
+    SetMonData(mon, MON_DATA_EXP, &exp);
+    SetMonData(mon, MON_DATA_LEVEL, &level);
+    SetMonData(mon, MON_DATA_MET_LEVEL, &level);
+    CalculateMonStats(mon);
+
+    // keep the same share of HP it had left
+    maxHP = GetMonData(mon, MON_DATA_MAX_HP);
+    if (oldMaxHP != 0)
+        hp = max(1, (hp * maxHP + oldMaxHP - 1) / oldMaxHP);
+    SetMonData(mon, MON_DATA_HP, &hp);
+
+    for (i = 0; i < MAX_MON_MOVES; i++)
+    {
+        SetMonData(mon, MON_DATA_MOVE1 + i, &none);
+        SetMonData(mon, MON_DATA_PP1 + i, &zero);
+    }
+    SetMonData(mon, MON_DATA_PP_BONUSES, &zero);
+    GiveMonInitialMoveset(mon);
+}
+
 // Called from the battle engine once the battle is over.
 void DexNav_OnBattleEnd(void)
 {
+    bool8 ran = (gBattleOutcome == B_OUTCOME_RAN || gBattleOutcome == B_OUTCOME_PLAYER_TELEPORTED);
+
+    // A different battle (a trainer spotted you) started while a hidden Pokémon
+    // was out: it's gone. Battles reset the heap, tasks and sprites, so there's
+    // nothing left to free. The search mode stays on.
+    if (sDexNavSearchActive && !gDexnavBattle)
+    {
+        sDexNavSearchActive = FALSE;
+        sDexNavSearchDataPtr = NULL;
+        gSoftResetDisabled = FALSE;
+    }
+
+    // Running from any wild Pokémon, DexNav or not, breaks the chain.
+    if (ran)
+        DexNavChainReset();
+
     if (!gDexnavBattle)
         return;
     gDexnavBattle = FALSE;
 
-    if (gBattleOutcome == B_OUTCOME_WON || gBattleOutcome == B_OUTCOME_CAUGHT)
+    if (gBattleOutcome == B_OUTCOME_CAUGHT && sDexNavBattleShiny)
+        DexNavChainReset(); // catching the shiny ends the chain
+    else if (gBattleOutcome == B_OUTCOME_WON || gBattleOutcome == B_OUTCOME_CAUGHT)
         DexNavChainIncrease();
-    else
-        DexNavChainDecrease(); // ran away, it fled, or the battle was lost
+    else if (!ran)
+        DexNavChainDecrease(); // it fled, or the battle was lost
 }
 
 
@@ -1831,6 +2126,124 @@ static void GetSlotPosition(u8 row, u8 col, s16 *x, s16 *y)
     }
 }
 
+// The red cursor and blue bookmark boxes are drawn at runtime around the
+// icon's actual pixels (icons are bottom-heavy and differ in size), kept
+// inside the slot so a box never reaches the neighbouring icon. The bookmark's
+// R badge sits on its box's top-right corner.
+#define BOX_MIN_X       3   // slot is ICON_SPACING (26) wide: 3..28 leaves a gap
+#define BOX_MAX_X       28
+#define BOX_ARM         6
+#define BOX_COLOR       1
+#define BADGE_SIZE      11
+
+static EWRAM_DATA ALIGNED(4) u8 sCursorBoxGfx[32 * 32 / 2] = {0};
+static EWRAM_DATA ALIGNED(4) u8 sBookmarkBoxGfx[32 * 32 / 2] = {0};
+
+static const u8 sBookmarkBadge[BADGE_SIZE][BADGE_SIZE] = {
+    {0,0,0,0,0,1,0,0,0,0,0},
+    {0,0,1,1,1,1,1,1,1,0,0},
+    {0,1,1,1,1,1,1,1,1,1,0},
+    {0,1,1,3,3,3,1,1,1,1,0},
+    {1,1,1,3,1,1,3,1,1,1,0},
+    {1,1,1,3,3,3,1,1,1,1,1},
+    {0,1,1,3,1,3,1,1,1,1,0},
+    {0,1,1,3,1,1,3,1,1,1,0},
+    {0,1,1,1,1,1,1,1,1,1,0},
+    {0,0,1,1,1,1,1,1,1,0,0},
+    {0,0,0,0,0,1,0,0,0,0,0},
+};
+
+static void PutBoxPixel(u8 *gfx, s32 x, s32 y, u8 color)
+{
+    u8 *b;
+
+    if (x < 0 || x > 31 || y < 0 || y > 31)
+        return;
+    b = &gfx[((y / 8) * 4 + x / 8) * TILE_SIZE_4BPP + (y % 8) * 4 + (x % 8) / 2];
+    if (x & 1)
+        *b = (*b & 0x0F) | (color << 4);
+    else
+        *b = (*b & 0xF0) | color;
+}
+
+// Bounding box of the icon's pixels over both animation frames.
+static void GetIconBounds(u16 species, s32 *x0, s32 *y0, s32 *x1, s32 *y1)
+{
+    const u8 *icon;
+    s32 x, y;
+    u32 frame;
+
+    *x0 = 5; *y0 = 5; *x1 = 26; *y1 = 26; // empty slot: the old fixed box
+    if (species == SPECIES_NONE)
+        return;
+    icon = GetMonIconPtr(species, 0xFFFFFFFF, FALSE);
+    *x0 = 32; *y0 = 32; *x1 = -1; *y1 = -1;
+    for (frame = 0; frame < 2; frame++)
+    {
+        for (y = 0; y < 32; y++)
+        {
+            for (x = 0; x < 32; x++)
+            {
+                u8 b = icon[frame * 512 + ((y / 8) * 4 + x / 8) * TILE_SIZE_4BPP + (y % 8) * 4 + (x % 8) / 2];
+                if ((x & 1) ? (b >> 4) : (b & 0xF))
+                {
+                    if (x < *x0) *x0 = x;
+                    if (x > *x1) *x1 = x;
+                    if (y < *y0) *y0 = y;
+                    if (y > *y1) *y1 = y;
+                }
+            }
+        }
+    }
+    if (*x1 < 0)
+    {
+        *x0 = 5; *y0 = 5; *x1 = 26; *y1 = 26;
+    }
+}
+
+static void DrawSelectionBox(u8 *gfx, u16 species, bool8 drawBox, bool8 drawBadge, u8 spriteId)
+{
+    s32 x0, y0, x1, y1, i, arm;
+
+    memset(gfx, 0, 32 * 32 / 2);
+    GetIconBounds(species, &x0, &y0, &x1, &y1);
+    // 1px gap around the icon, kept inside the slot
+    x0 = max(x0 - 3, BOX_MIN_X);
+    x1 = min(x1 + 3, BOX_MAX_X);
+    y0 = max(y0 - 3, 0);
+    y1 = min(y1 + 3, 31);
+
+    if (drawBox)
+    {
+        arm = min(BOX_ARM, min(x1 - x0 + 1, y1 - y0 + 1) / 2);
+        for (i = 0; i < arm; i++)
+        {
+            // top-left, top-right, bottom-left, bottom-right; each arm 2px thick
+            PutBoxPixel(gfx, x0 + i, y0, BOX_COLOR);     PutBoxPixel(gfx, x0 + i, y0 + 1, BOX_COLOR);
+            PutBoxPixel(gfx, x0, y0 + i, BOX_COLOR);     PutBoxPixel(gfx, x0 + 1, y0 + i, BOX_COLOR);
+            PutBoxPixel(gfx, x1 - i, y0, BOX_COLOR);     PutBoxPixel(gfx, x1 - i, y0 + 1, BOX_COLOR);
+            PutBoxPixel(gfx, x1, y0 + i, BOX_COLOR);     PutBoxPixel(gfx, x1 - 1, y0 + i, BOX_COLOR);
+            PutBoxPixel(gfx, x0 + i, y1, BOX_COLOR);     PutBoxPixel(gfx, x0 + i, y1 - 1, BOX_COLOR);
+            PutBoxPixel(gfx, x0, y1 - i, BOX_COLOR);     PutBoxPixel(gfx, x0 + 1, y1 - i, BOX_COLOR);
+            PutBoxPixel(gfx, x1 - i, y1, BOX_COLOR);     PutBoxPixel(gfx, x1 - i, y1 - 1, BOX_COLOR);
+            PutBoxPixel(gfx, x1, y1 - i, BOX_COLOR);     PutBoxPixel(gfx, x1 - 1, y1 - i, BOX_COLOR);
+        }
+    }
+    if (drawBadge)
+    {
+        // centred on the box's top-right corner, but kept inside the slot
+        s32 bx = min(x1 - BADGE_SIZE / 2, BOX_MAX_X + 1 - BADGE_SIZE);
+        s32 by = max(y0 - BADGE_SIZE / 2, 0);
+        s32 bxi, byi;
+
+        for (byi = 0; byi < BADGE_SIZE; byi++)
+            for (bxi = 0; bxi < BADGE_SIZE; bxi++)
+                if (sBookmarkBadge[byi][bxi])
+                    PutBoxPixel(gfx, bx + bxi, by + byi, sBookmarkBadge[byi][bxi]);
+    }
+    CpuCopy16(gfx, (void *)(OBJ_VRAM0 + gSprites[spriteId].oam.tileNum * TILE_SIZE_4BPP), 32 * 32 / 2);
+}
+
 static void UpdateBookmarkSprite(void)
 {
     u16 val = gSaveBlock1Ptr->dexNavRegistered;
@@ -1854,6 +2267,10 @@ static void UpdateBookmarkSprite(void)
                 sprite->x = x;
                 sprite->y = y;
                 sprite->invisible = FALSE;
+                // on the cursor's slot only the badge is drawn, over the red box
+                DrawSelectionBox(sBookmarkBoxGfx, species,
+                                 !(sDexNavUiDataPtr->cursorRow == ROW_WATER && sDexNavUiDataPtr->cursorCol == i),
+                                 TRUE, sDexNavUiDataPtr->bookmarkSpriteId);
                 return;
             }
         }
@@ -1864,10 +2281,15 @@ static void UpdateBookmarkSprite(void)
         {
             if (sDexNavUiDataPtr->landSpecies[i] == species)
             {
-                GetSlotPosition(i < COL_LAND_COUNT ? ROW_LAND_TOP : ROW_LAND_BOT, i % COL_LAND_COUNT, &x, &y);
+                u8 row = i < COL_LAND_COUNT ? ROW_LAND_TOP : ROW_LAND_BOT;
+
+                GetSlotPosition(row, i % COL_LAND_COUNT, &x, &y);
                 sprite->x = x;
                 sprite->y = y;
                 sprite->invisible = FALSE;
+                DrawSelectionBox(sBookmarkBoxGfx, species,
+                                 !(sDexNavUiDataPtr->cursorRow == row && sDexNavUiDataPtr->cursorCol == i % COL_LAND_COUNT),
+                                 TRUE, sDexNavUiDataPtr->bookmarkSpriteId);
                 return;
             }
         }
@@ -1882,6 +2304,8 @@ static void UpdateCursorPosition(void)
     sDexNavUiDataPtr->environment = (sDexNavUiDataPtr->cursorRow == ROW_WATER) ? ENCOUNTER_TYPE_WATER : ENCOUNTER_TYPE_LAND;
     gSprites[sDexNavUiDataPtr->cursorSpriteId].x = x;
     gSprites[sDexNavUiDataPtr->cursorSpriteId].y = y;
+    DrawSelectionBox(sCursorBoxGfx, DexNavGetSpecies(), TRUE, FALSE, sDexNavUiDataPtr->cursorSpriteId);
+    UpdateBookmarkSprite(); // its box hides when the cursor is on it
     PrintCurrentSpeciesInfo();
 }
 
@@ -1892,8 +2316,8 @@ static void CreateSelectionSprites(void)
     LoadSpritePalette(&sCursorSpritePalette);
     LoadSpritePalette(&sBookmarkSpritePalette);
 
-    sDexNavUiDataPtr->bookmarkSpriteId = CreateSprite(&sBookmarkSpriteTemplate, 0, 0, 1);
-    sDexNavUiDataPtr->cursorSpriteId = CreateSprite(&sSelectionCursorSpriteTemplate, 0, 0, 0);
+    sDexNavUiDataPtr->bookmarkSpriteId = CreateSprite(&sBookmarkSpriteTemplate, 0, 0, 0); // badge in front of the cursor
+    sDexNavUiDataPtr->cursorSpriteId = CreateSprite(&sSelectionCursorSpriteTemplate, 0, 0, 1);
     UpdateBookmarkSprite();
     UpdateCursorPosition();
 }
@@ -1924,8 +2348,13 @@ static void CB1_InitDexNavSearch(void)
 {
     if (!gPaletteFade.active && !ArePlayerFieldControlsLocked() && gMain.callback2 == CB2_Overworld)
     {
+        u8 taskId = FindTaskIdByFunc(Task_DexNavSearch);
+
         SetMainCallback1(CB1_Overworld);
-        StartDexNavTask(gSpecialVar_0x8000, gSpecialVar_0x8001);
+        if (taskId != TASK_NONE)
+            EndDexNavSearch(taskId); // switching to another Pokémon
+        DexNavStartSearchMode(gSpecialVar_0x8000, gSpecialVar_0x8001);
+        ScriptContext_SetupScript(EventScript_DexNavSearchOn);
     }
 }
 
@@ -2156,7 +2585,7 @@ static void PrintCurrentSpeciesInfo(void)
         }
     }
 
-    ConvertIntToDecimalStringN(gStringVar4, gSaveBlock1Ptr->dexNavChain, STR_CONV_MODE_LEFT_ALIGN, 3);
+    ConvertIntToDecimalStringN(gStringVar4, GetDexNavChainFor(species), STR_CONV_MODE_LEFT_ALIGN, 3);
     PrintInfoValue(INFO_CHAIN, gStringVar4);
     CopyWindowToVram(WIN_INFO, COPYWIN_FULL);
 }

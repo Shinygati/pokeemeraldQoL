@@ -6,6 +6,12 @@
 // generation, chain, shiny and potential rules rewritten for this hack so every
 // DexNav Pokémon is a legal Emerald wild encounter (see wild_encounter.c).
 
+// Search mode (ORAS): choose a Pokémon once (R with a bookmark, or A in the
+// DexNav menu); it then turns up near you on its own as you walk or bike.
+#define DEXNAV_SPAWN_MIN_STEPS          4   // steps between tries
+#define DEXNAV_SPAWN_STEP_CHANCE        40  // % chance per step after that to try (the species' find chance still applies)
+#define DEXNAV_SCARE_GRACE_FRAMES       120  // after it appears you have this long to stop running/biking
+
 #define DEXNAV_TIMEOUT                  15  // seconds before "The Pokémon got away!"
 #define SNEAKING_PROXIMITY              4   // tiles: nature / IVs / stars appear (running anywhere scares it off)
 #define DEXNAV_WALK_AWAY_DISTANCE       20  // tiles from the search start (off grass) that break the chain
@@ -43,7 +49,10 @@ void Task_OpenDexNavFromPokenav(u8 taskId);
 void OpenDexNavFromPokenav(void);
 bool8 TryStartDexnavSearch(void);
 void DexNav_OnMapChange(void);
+void DexNav_OnPlayerStep(void);
+void DexNav_OnFieldReset(void);
 void DexNav_OnBattleEnd(void);
+void DexNav_OnMonCaught(struct Pokemon *mon);
 void DexNav_IncrementSearchLevel(u16 species);
 u16 DexNav_GetSearchLevel(u16 species);
 bool8 DexNav_IsSearchActive(void);

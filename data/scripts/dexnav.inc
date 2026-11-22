@@ -10,6 +10,14 @@ EventScript_StartDexNavBattle::
 	release
 	end
 
+EventScript_DexNavSearchOn::
+	msgbox DexNav_Text_SearchOn, MSGBOX_SIGN
+	end
+
+EventScript_DexNavSearchOff::
+	msgbox DexNav_Text_SearchOff, MSGBOX_SIGN
+	end
+
 EventScript_DexNavNotFoundNearby::
 	msgbox DexNav_Text_NotFoundNearby, MSGBOX_SIGN
 	end
@@ -29,6 +37,13 @@ EventScript_DexNavLostSignal::
 EventScript_DexNavTooDark::
 	msgbox DexNav_Text_TooDark, MSGBOX_SIGN
 	end
+
+DexNav_Text_SearchOn:
+	.string "The DexNav is searching for {STR_VAR_1}.\n"
+	.string "Walk around to find it!$"
+
+DexNav_Text_SearchOff:
+	.string "The DexNav search was turned off.$"
 
 DexNav_Text_NotFoundNearby:
 	.string "It couldn't be found nearby.\n"

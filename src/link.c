@@ -330,6 +330,7 @@ static void InitLocalLinkPlayer(void)
     gLocalLinkPlayer.language = gGameLanguage;
     gLocalLinkPlayer.version = gGameVersion + 0x4000;
     gLocalLinkPlayer.lp_field_2 = 0x8000;
+    gLocalLinkPlayer.neverRead = LINK_ROMHACK_MAGIC;
     gLocalLinkPlayer.progressFlags = IsNationalPokedexEnabled();
     if (FlagGet(FLAG_IS_CHAMPION))
     {
@@ -1751,6 +1752,12 @@ void SetSuppressLinkErrorMessage(bool8 flag)
 bool8 HasLinkErrorOccurred(void)
 {
     return gLinkErrorOccurred;
+}
+
+// TRUE if the other player in a 2-player link is running this hack too.
+bool8 IsLinkPartnerSameRomhack(void)
+{
+    return gLinkPlayers[GetMultiplayerId() ^ 1].neverRead == LINK_ROMHACK_MAGIC;
 }
 
 void LocalLinkPlayerToBlock(void)

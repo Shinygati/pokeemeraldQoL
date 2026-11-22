@@ -4047,7 +4047,8 @@ u8 IsRunningFromBattleImpossible(void)
 
     side = GetBattlerSide(gActiveBattler);
 
-    for (i = 0; i < gBattlersCount; i++)
+    // Gen 6: Ghost types can't be trapped by moves or abilities (Ingrain still roots them)
+    for (i = 0; i < gBattlersCount && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST); i++)
     {
         if (side != GetBattlerSide(i)
          && gBattleMons[i].ability == ABILITY_SHADOW_TAG)
@@ -4069,14 +4070,14 @@ u8 IsRunningFromBattleImpossible(void)
         }
     }
     i = AbilityBattleEffects(ABILITYEFFECT_CHECK_FIELD_EXCEPT_BATTLER, gActiveBattler, ABILITY_MAGNET_PULL, 0, 0);
-    if (i != 0 && IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_STEEL))
+    if (i != 0 && IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_STEEL) && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST))
     {
         gBattleScripting.battler = i - 1;
         gLastUsedAbility = gBattleMons[i - 1].ability;
         gBattleCommunication[MULTISTRING_CHOOSER] = B_MSG_PREVENTS_ESCAPE;
         return BATTLE_RUN_FAILURE;
     }
-    if ((gBattleMons[gActiveBattler].status2 & (STATUS2_ESCAPE_PREVENTION | STATUS2_WRAPPED))
+    if (((gBattleMons[gActiveBattler].status2 & (STATUS2_ESCAPE_PREVENTION | STATUS2_WRAPPED)) && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST))
         || (gStatuses3[gActiveBattler] & STATUS3_ROOTED))
     {
         gBattleCommunication[MULTISTRING_CHOOSER] = B_MSG_CANT_ESCAPE;
@@ -4246,18 +4247,19 @@ static void HandleTurnActionSelectionState(void)
                     break;
                 case B_ACTION_SWITCH:
                     *(gBattleStruct->battlerPartyIndexes + gActiveBattler) = gBattlerPartyIndexes[gActiveBattler];
-                    if (gBattleMons[gActiveBattler].status2 & (STATUS2_WRAPPED | STATUS2_ESCAPE_PREVENTION)
+                    if ((gBattleMons[gActiveBattler].status2 & (STATUS2_WRAPPED | STATUS2_ESCAPE_PREVENTION) && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST))
                         || gBattleTypeFlags & BATTLE_TYPE_ARENA
                         || gStatuses3[gActiveBattler] & STATUS3_ROOTED)
                     {
                         BtlController_EmitChoosePokemon(B_COMM_TO_CONTROLLER, PARTY_ACTION_CANT_SWITCH, PARTY_SIZE, ABILITY_NONE, gBattleStruct->battlerPartyOrders[gActiveBattler]);
                     }
-                    else if ((i = ABILITY_ON_OPPOSING_FIELD(gActiveBattler, ABILITY_SHADOW_TAG))
+                    else if (!IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_GHOST)
+                          && ((i = ABILITY_ON_OPPOSING_FIELD(gActiveBattler, ABILITY_SHADOW_TAG))
                              || ((i = ABILITY_ON_OPPOSING_FIELD(gActiveBattler, ABILITY_ARENA_TRAP))
                                  && !IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_FLYING)
                                  && gBattleMons[gActiveBattler].ability != ABILITY_LEVITATE)
                              || ((i = AbilityBattleEffects(ABILITYEFFECT_CHECK_FIELD_EXCEPT_BATTLER, gActiveBattler, ABILITY_MAGNET_PULL, 0, 0))
-                                 && IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_STEEL)))
+                                 && IS_BATTLER_OF_TYPE(gActiveBattler, TYPE_STEEL))))
                     {
                         BtlController_EmitChoosePokemon(B_COMM_TO_CONTROLLER, ((i - 1) << 4) | PARTY_ACTION_ABILITY_PREVENTS, PARTY_SIZE, gLastUsedAbility, gBattleStruct->battlerPartyOrders[gActiveBattler]);
                     }

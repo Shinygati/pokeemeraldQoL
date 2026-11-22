@@ -386,8 +386,31 @@ static void npc_clear_strange_bits(struct ObjectEvent *objEvent)
     gPlayerAvatar.flags &= ~PLAYER_AVATAR_FLAG_DASH;
 }
 
+// Double-tapping B in the field toggles auto-run (saved with the options).
+#define AUTO_RUN_DOUBLE_TAP_FRAMES 20
+static EWRAM_DATA u8 sAutoRunTapTimer = 0;
+
+static void TryToggleAutoRun(u16 newKeys)
+{
+    if (sAutoRunTapTimer != 0)
+        sAutoRunTapTimer--;
+    if (!(newKeys & B_BUTTON) || !FlagGet(FLAG_SYS_B_DASH))
+        return;
+    if (sAutoRunTapTimer != 0)
+    {
+        gSaveBlock2Ptr->autoRun ^= 1;
+        sAutoRunTapTimer = 0;
+        PlaySE(SE_SELECT);
+    }
+    else
+    {
+        sAutoRunTapTimer = AUTO_RUN_DOUBLE_TAP_FRAMES;
+    }
+}
+
 static void MovePlayerAvatarUsingKeypadInput(u8 direction, u16 newKeys, u16 heldKeys)
 {
+    TryToggleAutoRun(newKeys);
     if (gPlayerAvatar.flags & (PLAYER_AVATAR_FLAG_MACH_BIKE | PLAYER_AVATAR_FLAG_ACRO_BIKE))
         MovePlayerOnBike(direction, newKeys, heldKeys);
     else
@@ -651,7 +674,8 @@ static void PlayerNotOnBikeMoving(u8 direction, u16 heldKeys)
         return;
     }
 
-    if (!(gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_UNDERWATER) && (heldKeys & B_BUTTON) && FlagGet(FLAG_SYS_B_DASH)
+    // with auto-run on, the player runs unless B is held
+    if (!(gPlayerAvatar.flags & PLAYER_AVATAR_FLAG_UNDERWATER) && (((heldKeys & B_BUTTON) != 0) != gSaveBlock2Ptr->autoRun) && FlagGet(FLAG_SYS_B_DASH)
      && IsRunningDisallowed(gObjectEvents[gPlayerAvatar.objectEventId].currentMetatileBehavior) == 0)
     {
         PlayerRun(direction);

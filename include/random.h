@@ -9,7 +9,9 @@ u16 Random(void);
 u16 Random2(void);
 
 //Returns a 32-bit pseudorandom number
-#define Random32() (Random() | (Random() << 16))
+// unsigned: (Random() << 16) on its own is a signed int, so the result could be
+// negative and `Random32() % n < x` would come out wrong about half the time
+#define Random32() ((u32)Random() | ((u32)Random() << 16))
 
 // The number 1103515245 comes from the example implementation of rand and srand
 // in the ISO C standard.

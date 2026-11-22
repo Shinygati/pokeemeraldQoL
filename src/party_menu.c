@@ -2076,6 +2076,19 @@ static bool8 CanLearnTutorMove(u16 species, u8 tutor)
         return FALSE;
 }
 
+// TRUE if the species can learn the move from a move tutor.
+bool8 CanSpeciesLearnTutorMove(u16 species, u16 move)
+{
+    u32 tutor;
+
+    for (tutor = 0; tutor < TUTOR_MOVE_COUNT; tutor++)
+    {
+        if (gTutorMoves[tutor] == move && CanLearnTutorMove(species, tutor))
+            return TRUE;
+    }
+    return FALSE;
+}
+
 static void InitPartyMenuWindows(u8 layout)
 {
     u8 i;

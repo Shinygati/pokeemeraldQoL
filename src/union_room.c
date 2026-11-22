@@ -1482,7 +1482,12 @@ static void Task_StartUnionRoomTrade(u8 taskId)
     {
     case 0:
         gTasks[taskId].data[0]++;
-        SendBlock(0, &gPlayerParty[monId], sizeof(struct Pokemon));
+        {
+            struct Pokemon mon = gPlayerParty[monId];
+            if (!IsLinkPartnerSameRomhack())
+                RemoveEggMovesForForeignTrade(&mon); // see BufferMonsToSend in trade.c
+            SendBlock(0, &mon, sizeof(struct Pokemon));
+        }
         break;
     case 1:
         if (GetBlockReceivedStatus() == 3)

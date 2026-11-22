@@ -523,6 +523,7 @@ struct SaveBlock2
              u16 optionsBattleSceneOff:1; // whether battle animations are disabled
              u16 regionMapZoom:1; // whether the map is zoomed in
 			 u16 expShare:1;
+             u16 autoRun:1; // double-tap B in the field to toggle; holding B then walks
              //u16 padding1:4;
              //u16 padding2;
     /*0x18*/ struct Pokedex pokedex;
@@ -1076,7 +1077,8 @@ struct SaveBlock1
     /*0x3D5A*/ u8 dexNavChain; // DexNav chain (was unused)
     /*0x3D5B*/ u8 unused_3D5B;
     /*0x3D5C*/ u16 dexNavRegistered; // DexNav bookmark: species | (environment << 14) (was unused)
-    /*0x3D5E*/ u8 unused_3D5E[6];
+    /*0x3D5E*/ u16 dexNavChainSpecies; // species the DexNav chain belongs to (was unused)
+    /*0x3D60*/ u8 unused_3D60[4];
     /*0x3D64*/ struct TrainerHillSave trainerHill;
     /*0x3D70*/ struct WaldaPhrase waldaPhrase;
     // sizeof: 0x3D88

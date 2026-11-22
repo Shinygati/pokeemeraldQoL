@@ -30,6 +30,7 @@ extern u8 gBattlePartyCurrentOrder[PARTY_SIZE / 2];
 extern void (*gItemUseCB)(u8, TaskFunc);
 
 extern const u16 gTutorMoves[];
+bool8 CanSpeciesLearnTutorMove(u16 species, u16 move);
 
 void AnimatePartySlot(u8 slot, u8 animNum);
 bool8 IsMultiBattle(void);

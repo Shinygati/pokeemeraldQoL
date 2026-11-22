@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DexNav Shiny Odds — pokeemeraldQoL</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70;
+    --line: #e4e1da; --accent: #d9622b; --accent-soft: #fbe9df; --good: #2f7d4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #17171a; --card: #222226; --ink: #f2f2f4; --muted: #a0a0a8;
+            --line: #34343a; --accent: #f08a4b; --accent-soft: #3a2a22; --good: #6fd19a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 28px 18px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+  label.field { display: block; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .name { font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .name small { color: var(--muted); font-weight: 400; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  input[type=number] { width: 84px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+                       background: var(--bg); color: var(--ink); font: inherit; text-align: right; }
+  .check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+  .check input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; }
+  .check small { display: block; color: var(--muted); }
+  .result { text-align: center; padding: 22px 18px; }
+  .big { font-size: 46px; font-weight: 750; letter-spacing: -0.5px; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .pct { color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .note { display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 999px; background: var(--accent-soft);
+          color: var(--accent); font-size: 13px; font-weight: 600; }
+  .note:empty { display: none; }
+  dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  tr.cur td { color: var(--accent); font-weight: 650; }
+  .foot { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DexNav Shiny Odds</h1>
+  <p class="sub">Exact odds for one DexNav encounter in pokeemeraldQoL. Same rules as ORAS.</p>
+
+  <div class="card">
+    <label class="field">
+      <div class="name">Search Level <small>battles vs this species, 0–999</small></div>
+      <div class="row">
+        <input type="range" id="slR" min="0" max="999" value="0">
+        <input type="number" id="slN" min="0" max="999" value="0">
+      </div>
+    </label>
+    <label class="field">
+      <div class="name">Current chain <small>the number shown on the DexNav, 0–100</small></div>
+      <div class="row">
+        <input type="range" id="chR" min="0" max="100" value="0">
+        <input type="number" id="chN" min="0" max="100" value="0">
+      </div>
+    </label>
+    <label class="check">
+      <input type="checkbox" id="charm">
+      <span>Shiny boost flag (0x037) is on
+        <small>Counts as the Shiny Charm: +2 DexNav checks and 3 normal 1/4096 rolls instead of 1.</small></span>
+    </label>
+  </div>
+
+  <div class="card result">
+    <div class="big" id="odds">1 / 4096</div>
+    <div class="pct" id="pct">0.0244% for this encounter</div>
+    <div class="note" id="noteEl"></div>
+  </div>
+
+  <div class="card">
+    <h2>How it adds up</h2>
+    <dl>
+      <dt>Next encounter number</dt><dd id="encNo">1</dd>
+      <dt>If boosted ("!")</dt><dd id="ifBoost">—</dd>
+      <dt>If not boosted</dt><dd id="ifNot">—</dd>
+      <dt>Level bonus (battle only)</dt><dd id="lvl">+0</dd>
+      <dt>Chance per DexNav check</dt><dd id="perCheck">—</dd>
+      <dt>DexNav checks (no boost / boosted)</dt><dd id="checks">—</dd>
+      <dt>Chance of a boosted encounter</dt><dd id="boost">—</dd>
+      <dt>Normal 1/4096 rolls</dt><dd id="normal">—</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>Same Search Level at key chain points</h2>
+    <table>
+      <thead><tr><th>Next encounter</th><th>Current chain</th><th>Odds</th></tr></thead>
+      <tbody id="tbl"></tbody>
+    </table>
+  </div>
+
+  <p class="foot">
+    Matches ORAS 1:1 and <code>RollDexNavShiny</code> in src/dexnav.c. Each DexNav check succeeds with
+    ceil(target / 100) / 10,000, where target is 6 per Search Level up to 100, then 2 per level up to 200, then 1 per level
+    (so 1/10,000 at Search Level 1–16, up to 16/10,000 at 901+). Checks: 1, +2 with the flag, +4 when boosted,
+    +5 on the 50th encounter and +10 on the 100th encounter only. The next encounter is the current chain + 1:
+    every 5th encounter is boosted (when the DexNav shows 4, 9, 14 …), otherwise there's a 4% chance.
+    Levels: +1 per 5 in the chain (back to 0 at 100) and +10 when boosted, in battle only; a caught Pokémon keeps its normal level.
+    The chain only counts for the species it belongs to; any other species uses a chain of 0.
+  </p>
+</main>
+<script>
+  // Odds of Random() % m < k with a uniform 16-bit Random()
+  function pModBelow(m, k) {
+    if (k <= 0) return 0;
+    k = Math.min(k, m);
+    const full = Math.floor(65536 / m), extra = 65536 % m;   // values < extra get one more preimage
+    const count = (full + 1) * Math.min(k, extra) + full * Math.max(0, k - extra);
+    return count / 65536;
+  }
+
+  function target(sl) {
+    let t = 0, lv = sl;
+    if (lv > 200) { t += lv - 200; lv = 200; }
+    if (lv > 100) { t += lv * 2 - 200; lv = 100; }
+    return t + lv * 6;
+  }
+
+  function odds(sl, chain, charm) {
+    // ORAS 1:1: each DexNav check succeeds with ceil(target / 100) / 10000
+    const pCheck = Math.min(Math.ceil(target(sl) / 100), 10000) / 10000;
+    const enc = chain + 1;                       // the encounter about to happen
+    const base = 1 + (charm ? 2 : 0) + (enc === 50 ? 5 : 0) + (enc === 100 ? 10 : 0);
+    const forced = (enc % 5 === 0);
+    const pBoost = forced ? 1 : 0.04;
+    const normalRolls = charm ? 3 : 1;
+    const missNormal = Math.pow(1 - 1 / 4096, normalRolls);
+    const pNo = 1 - Math.pow(1 - pCheck, base) * missNormal;
+    const pYes = 1 - Math.pow(1 - pCheck, base + 4) * missNormal;
+    const p = forced ? pYes : pBoost * pYes + (1 - pBoost) * pNo;
+    return { p, pNo, pYes, pCheck, base, pBoost, forced, enc, normalRolls };
+  }
+
+  const fmt = p => p <= 0 ? "never" : "1 / " + Math.round(1 / p).toLocaleString();
+  const pctFmt = p => (p * 100 < 0.01 ? (p * 100).toFixed(4) : (p * 100).toFixed(2)) + "%";
+  const $ = id => document.getElementById(id);
+
+  function link(r, n, max) {
+    const clamp = v => Math.max(0, Math.min(max, Math.round(+v || 0)));
+    r.addEventListener("input", () => { n.value = r.value; update(); });
+    n.addEventListener("input", () => { r.value = clamp(n.value); update(); });
+    n.addEventListener("change", () => { n.value = clamp(n.value); r.value = n.value; update(); });
+  }
+  link($("slR"), $("slN"), 999);
+  link($("chR"), $("chN"), 100);
+  $("charm").addEventListener("change", update);
+
+  function update() {
+    const sl = +$("slR").value, chain = +$("chR").value, charm = $("charm").checked;
+    const o = odds(sl, chain, charm);
+    $("odds").textContent = fmt(o.p);
+    $("pct").textContent = pctFmt(o.p) + " for this encounter";
+    let note = "";
+    if (o.enc === 100) note = "100th encounter: +10 checks";
+    else if (o.enc === 50) note = "50th encounter: +5 checks";
+    if (o.forced) note = (note ? note + " · " : "") + "Every 5th encounter: guaranteed boost";
+    if (sl === 0) note = (note ? note + " · " : "") + "Search Level 0: DexNav checks can't hit";
+    $("noteEl").textContent = note;
+    $("encNo").textContent = o.enc;
+    $("lvl").textContent = "+" + ((chain / 5 | 0) % 20) + " (+10 more if boosted)";
+    $("ifBoost").textContent = fmt(o.pYes);
+    $("ifNot").textContent = o.forced ? "— (always boosted)" : fmt(o.pNo);
+    $("perCheck").textContent = o.pCheck > 0 ? fmt(o.pCheck) : "0 (needs Search Level 1+)";
+    $("checks").textContent = o.base + " / " + (o.base + 4);
+    $("boost").textContent = o.forced ? "100% (every 5th)" : pctFmt(o.pBoost);
+    $("normal").textContent = o.normalRolls + " × 1/4096";
+
+    const rows = [[0, "1st"], [3, "4th"], [4, "5th (boosted)"], [48, "49th"], [49, "50th (+5 checks)"], [98, "99th"], [99, "100th (+10 checks)"], [100, "101st+"]];
+    $("tbl").innerHTML = rows.map(([c, label]) =>
+      `<tr class="${c === chain || (c === 100 && chain >= 100) ? "cur" : ""}"><td>${label}</td><td>${c}</td><td>${fmt(odds(sl, c, charm).p)}</td></tr>`
+    ).join("");
+  }
+  update();
+</script>
+</body>
+</html>

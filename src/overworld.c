@@ -2173,6 +2173,7 @@ static void InitOverworldGraphicsRegisters(void)
 
 static void ResumeMap(bool32 a1)
 {
+    DexNav_OnFieldReset(); // a hidden DexNav Pokémon doesn't survive the reset
     ResetTasks();
     ResetSpriteData();
     ResetPaletteFade();

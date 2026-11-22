@@ -1047,6 +1047,23 @@ static void Trade_Memcpy(void *dest, const void *src, u32 size)
         _dest[i] = _src[i];
 }
 
+// Copies two party Pokémon into the send buffer. If the partner isn't running
+// this hack, egg moves the Pokémon can't legally know are removed from the
+// copies (the player's own party is untouched).
+static void BufferMonsToSend(const struct Pokemon *src)
+{
+    struct Pokemon mons[2];
+    u32 i;
+
+    Trade_Memcpy(mons, src, sizeof(mons));
+    if (!IsLinkPartnerSameRomhack())
+    {
+        for (i = 0; i < ARRAY_COUNT(mons); i++)
+            RemoveEggMovesForForeignTrade(&mons[i]);
+    }
+    Trade_Memcpy(gBlockSendBuffer, mons, sizeof(mons));
+}
+
 static bool8 BufferTradeParties(void)
 {
     u8 id = GetMultiplayerId();
@@ -1057,7 +1074,7 @@ static bool8 BufferTradeParties(void)
     {
     case 0:
         // The parties are sent in pairs rather than all at once
-        Trade_Memcpy(gBlockSendBuffer, &gPlayerParty[0], 2 * sizeof(struct Pokemon));
+        BufferMonsToSend(&gPlayerParty[0]);
         sTradeMenu->bufferPartyState++;
         sTradeMenu->timer = 0;
         break;
@@ -1089,7 +1106,7 @@ static bool8 BufferTradeParties(void)
         }
         break;
     case 5:
-        Trade_Memcpy(gBlockSendBuffer, &gPlayerParty[2], 2 * sizeof(struct Pokemon));
+        BufferMonsToSend(&gPlayerParty[2]);
         sTradeMenu->bufferPartyState++;
         break;
     case 7:
@@ -1106,7 +1123,7 @@ static bool8 BufferTradeParties(void)
         }
         break;
     case 9:
-        Trade_Memcpy(gBlockSendBuffer, &gPlayerParty[4], 2 * sizeof(struct Pokemon));
+        BufferMonsToSend(&gPlayerParty[4]);
         sTradeMenu->bufferPartyState++;
         break;
     case 11:
