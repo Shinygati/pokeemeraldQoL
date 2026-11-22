@@ -6941,32 +6941,26 @@ u8 GetMoveRelearnerMoves(struct Pokemon *mon, u16 *moves)
     u16 eggSpecies;
     u16 eggMove;
     u8 level = GetMonData(mon, MON_DATA_LEVEL, 0);
-    u8 preEvLvl = (level > MAX_LEVEL_DIFF_PRE_EV) ? (level - MAX_LEVEL_DIFF_PRE_EV) : 1;
     u8 numMoves = 0;
+    u8 stage;
     int i, j, k;
 
     for (i = 0; i < MAX_MON_MOVES; i++)
         learnedMoves[i] = GetMonData(mon, MON_DATA_MOVE1 + i, 0);
 
-    for (i = 0; i < MAX_LEVEL_UP_MOVES; i++)
+    // Include eligible level-up moves from this species and all its
+    // pre-evolutions. Use the Pokemon's CURRENT level for every stage, so a
+    // level 54 Breloom can relearn Spore (Shroomish learns it at level 54).
+    for (stage = 0; stage < MAX_RELEARNER_EVO_STAGES && species != SPECIES_NONE; stage++)
     {
-        u16 moveLevel;
-
-        if (gLevelUpLearnsets[species][i] == LEVEL_UP_END)
+        for (i = 0; i < MAX_LEVEL_UP_MOVES && gLevelUpLearnsets[species][i] != LEVEL_UP_END; i++)
         {
-            i = 0;
-            level = preEvLvl;
-            species = GetPreEvolution(species);
-        }
+            u16 entry = gLevelUpLearnsets[species][i];
 
-        if (species == SPECIES_NONE)
-            break;
+            if ((entry & LEVEL_UP_MOVE_LV) > (level << 9))
+                continue;
 
-        moveLevel = gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_LV;
-
-        if (moveLevel <= (level << 9))
-        {
-            eggMove = gLevelUpLearnsets[species][i] & LEVEL_UP_MOVE_ID;
+            eggMove = entry & LEVEL_UP_MOVE_ID;
 
             for (j = 0; j < MAX_MON_MOVES && learnedMoves[j] != eggMove; j++)
                 ;
@@ -6976,10 +6970,12 @@ u8 GetMoveRelearnerMoves(struct Pokemon *mon, u16 *moves)
                 for (k = 0; k < numMoves && moves[k] != eggMove; k++)
                     ;
 
-                if (k == numMoves)
+                if (k == numMoves && numMoves < MAX_RELEARNER_MOVES - 1)
                     moves[numMoves++] = eggMove;
             }
         }
+
+        species = GetPreEvolution(species);
     }
 
     // Add egg moves from the species' first matching entry in its evolution chain.
@@ -7003,7 +6999,7 @@ u8 GetMoveRelearnerMoves(struct Pokemon *mon, u16 *moves)
                         for (k = 0; k < numMoves && moves[k] != eggMove; k++)
                             ;
 
-                        if (k == numMoves)
+                        if (k == numMoves && numMoves < MAX_RELEARNER_MOVES - 1)
                             moves[numMoves++] = eggMove;
                     }
                 }
@@ -7032,7 +7028,7 @@ u8 GetLevelUpMovesBySpecies(u16 species, u16 *moves)
 
 u8 GetNumberOfRelearnableMoves(struct Pokemon *mon)
 {
-    u16 moves[MAX_LEVEL_UP_MOVES + EGG_MOVES_ARRAY_COUNT];
+    u16 moves[MAX_RELEARNER_MOVES - 1];
 
     if (GetMonData(mon, MON_DATA_SPECIES_OR_EGG, 0) == SPECIES_EGG)
         return 0;

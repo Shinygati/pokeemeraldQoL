@@ -24,6 +24,11 @@
 #define EGG_MOVES_ARRAY_COUNT           10
 #define EGG_LVL_UP_MOVES_ARRAY_COUNT    (MAX_LEVEL_UP_MOVES > 50 ? MAX_LEVEL_UP_MOVES : 50)
 
+// Room for the level-up moves of a full three-stage evolution line, egg moves,
+// and the move relearner's Cancel option.
+#define MAX_RELEARNER_EVO_STAGES         3
+#define MAX_RELEARNER_MOVES              (MAX_LEVEL_UP_MOVES * MAX_RELEARNER_EVO_STAGES + EGG_MOVES_ARRAY_COUNT + 1)
+
 #define EGG_MOVES_SPECIES_OFFSET 20000
 #define EGG_MOVES_TERMINATOR 0xFFFF
 
