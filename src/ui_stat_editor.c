@@ -393,6 +393,7 @@ static void Task_StatEditorWaitFadeAndBail(u8 taskId)
 {
     if (!gPaletteFade.active)
     {
+        gSpecialVar_0x8004 = sStatEditorDataPtr->partyid;
         SetMainCallback2(sStatEditorDataPtr->savedCallback);
         StatEditor_FreeResources();
         DestroyTask(taskId);
@@ -478,6 +479,7 @@ static void Task_StatEditorTurnOff(u8 taskId)
 
     if (!gPaletteFade.active)
     {
+        gSpecialVar_0x8004 = sStatEditorDataPtr->partyid;
         SetMainCallback2(sStatEditorDataPtr->savedCallback);
         StatEditor_FreeResources();
         DestroyTask(taskId);

@@ -659,6 +659,7 @@ struct
 {
     [MENU_SUMMARY] = {gText_Summary5, CursorCb_Summary},
 	[MENU_STAT_EDIT] = {gText_StatEditor, CursorCb_StatEdit},
+    [MENU_QUICK_HEAL] = {sText_QuickHeal, CursorCb_QuickHeal},
     [MENU_RELEARN] = {gText_Relearn_Menu, CursorCb_Relearn},
     [MENU_SWITCH] = {gText_Switch2, CursorCb_Switch},
     [MENU_CANCEL1] = {gText_Cancel2, CursorCb_Cancel1},

@@ -34,6 +34,12 @@ struct BagPocket
 extern const struct Item gItems[];
 extern struct BagPocket gBagPockets[];
 
+bool8 IsBagItemFavorite(u16 item);
+bool8 ToggleBagItemFavorite(u16 item);
+u8 GetBagSortMode(u8 pocket);
+void SortBagPocket(u8 pocket, bool8 byName);
+void GroupBagFavorites(u8 pocket);
+
 void ApplyNewEncryptionKeyToBagItems(u32 newKey);
 void ApplyNewEncryptionKeyToBagItems_(u32 newKey);
 void SetBagItemsPointers(void);

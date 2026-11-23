@@ -700,6 +700,119 @@ void CompactItemsInBagPocket(struct BagPocket *bagPocket)
     }
 }
 
+
+// Eight favorites occupy only previously reserved save bytes. Do not grow or
+// move either save block: official games and migration tools use those offsets.
+#define BAG_FAVORITES_MAGIC 0xA400
+#define BAG_FAVORITES_MAGIC_MASK 0xFC00
+#define BAG_FAVORITES_COUNT 8
+
+static u16 *BagFavoriteSlot(u8 slot)
+{
+    if (slot < 4)
+        return &gSaveBlock2Ptr->bagFavorites[slot];
+    if (slot < 7)
+        return &gSaveBlock1Ptr->bagFavoritesExtra[slot - 4];
+    return &gSaveBlock1Ptr->bagFavoriteLast;
+}
+
+bool8 IsBagItemFavorite(u16 item)
+{
+    u8 i;
+    if (item == ITEM_NONE || item >= ITEMS_COUNT || (gSaveBlock1Ptr->bagFavoritesMagic & BAG_FAVORITES_MAGIC_MASK) != BAG_FAVORITES_MAGIC)
+        return FALSE;
+    for (i = 0; i < BAG_FAVORITES_COUNT; i++)
+        if (*BagFavoriteSlot(i) == item)
+            return TRUE;
+    return FALSE;
+}
+
+bool8 ToggleBagItemFavorite(u16 item)
+{
+    u8 i;
+    if (item == ITEM_NONE || item >= ITEMS_COUNT)
+        return FALSE;
+    if ((gSaveBlock1Ptr->bagFavoritesMagic & BAG_FAVORITES_MAGIC_MASK) != BAG_FAVORITES_MAGIC)
+    {
+        for (i = 0; i < BAG_FAVORITES_COUNT; i++)
+            *BagFavoriteSlot(i) = ITEM_NONE;
+        gSaveBlock1Ptr->bagFavoritesMagic = BAG_FAVORITES_MAGIC;
+    }
+    for (i = 0; i < BAG_FAVORITES_COUNT; i++)
+    {
+        if (*BagFavoriteSlot(i) == item)
+        {
+            *BagFavoriteSlot(i) = ITEM_NONE;
+            return TRUE;
+        }
+    }
+    for (i = 0; i < BAG_FAVORITES_COUNT; i++)
+    {
+        if (*BagFavoriteSlot(i) == ITEM_NONE || *BagFavoriteSlot(i) >= ITEMS_COUNT)
+        {
+            *BagFavoriteSlot(i) = item;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// Stable grouping preserves the player's ordering within each group. Whole
+// encrypted slots move together, so item quantities are never reinterpreted.
+void GroupBagFavorites(u8 pocket)
+{
+    struct BagPocket *bag = &gBagPockets[pocket];
+    u16 i, j, next = 0;
+    struct ItemSlot slot;
+    for (i = 0; i < bag->capacity; i++)
+    {
+        if (IsBagItemFavorite(bag->itemSlots[i].itemId))
+        {
+            slot = bag->itemSlots[i];
+            for (j = i; j > next; j--)
+                bag->itemSlots[j] = bag->itemSlots[j - 1];
+            bag->itemSlots[next++] = slot;
+        }
+    }
+}
+
+u8 GetBagSortMode(u8 pocket)
+{
+    if ((gSaveBlock1Ptr->bagFavoritesMagic & BAG_FAVORITES_MAGIC_MASK) != BAG_FAVORITES_MAGIC)
+        return 0;
+    return (gSaveBlock1Ptr->bagFavoritesMagic >> (pocket * 2)) & 3;
+}
+
+void SortBagPocket(u8 pocket, bool8 byName)
+{
+    struct BagPocket *bag = &gBagPockets[pocket];
+    u16 i, j;
+    struct ItemSlot slot;
+    if ((gSaveBlock1Ptr->bagFavoritesMagic & BAG_FAVORITES_MAGIC_MASK) != BAG_FAVORITES_MAGIC)
+    {
+        for (i = 0; i < BAG_FAVORITES_COUNT; i++)
+            *BagFavoriteSlot(i) = ITEM_NONE;
+        gSaveBlock1Ptr->bagFavoritesMagic = BAG_FAVORITES_MAGIC;
+    }
+    gSaveBlock1Ptr->bagFavoritesMagic &= ~(3 << (pocket * 2));
+    gSaveBlock1Ptr->bagFavoritesMagic |= (byName ? 2 : 1) << (pocket * 2);
+    CompactItemsInBagPocket(bag);
+    for (i = 1; i < bag->capacity && bag->itemSlots[i].itemId != ITEM_NONE; i++)
+    {
+        slot = bag->itemSlots[i];
+        for (j = i; j > 0; j--)
+        {
+            u16 prev = bag->itemSlots[j - 1].itemId;
+            s32 order = byName ? StringCompare(gItems[prev].name, gItems[slot.itemId].name) : (s32)prev - slot.itemId;
+            if (order <= 0)
+                break;
+            bag->itemSlots[j] = bag->itemSlots[j - 1];
+        }
+        bag->itemSlots[j] = slot;
+    }
+    GroupBagFavorites(pocket);
+}
+
 void SortBerriesOrTMHMs(struct BagPocket *bagPocket)
 {
     u16 i, j;

@@ -81,7 +81,19 @@ The tutor preserves shiny status, gender, ability and trainer data, while respec
 
 Defeat one opponent before throwing a Poké Ball. Running uses the selecting Pokémon's Speed against the faster living opponent. A successful attempt immediately ends the whole battle; after a failed attempt, the partner can still act. Smoke Ball and Run Away retain their guaranteed escape effects. Trainer battles are unaffected.
 
-## Other convenience features
+## Bag and party Features
+
+- Press **START** in the field Bag to sort the current pocket **BY TYPE** or **BY NAME**, or mark/unmark the highlighted item as a favorite.
+- Save up to **eight favorites**, shown with a **+** marker at the top of their pocket. Each pocket remembers its sort choice. Unmarking a favorite selects the **first item slot**. Key Item registration works separately.
+- Choose **QUICK HEAL** from a Pokémon's party menu to cure status and restore HP using available medicine from the Bag. Smaller sufficient HP heals are preferred, and PP-restoring items are preserved.
+- Quick Heal uses a **Revive** for a fainted Pokémon, or a **Max Revive** if no regular Revives are available, then uses HP medicine if needed.
+- Quick Heal messages, including **already healthy**, stay on screen until you press **A** or **B**. Dismissing the message returns to party selection.
+- Using an item outside battle keeps the party screen open so you can use it again or select another Pokémon. Press **B** or choose **CANCEL** to return to the Bag. An empty stack cannot be used again.
+- Leaving the EV editor keeps the **last edited Pokémon** selected, including Pokémon chosen with **L/R** inside the editor.
+
+Favorites and sorting use previously reserved save bytes. The existing save-block sizes, official data offsets and Pokémon structure are unchanged. Saving and reloading favorites and sorting have been tested, and the resulting Emerald save passed PKHeX checksum validation. Actual DS migration and Colosseum/XD connectivity have not been hardware-tested.
+
+## Other QoL features
 
 - Physical/special move split.
 - Reusable TMs; field HMs require a compatible party Pokémon and the appropriate badge, without teaching the move.

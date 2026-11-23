@@ -97,6 +97,7 @@ enum {
     MENU_TRADE1,
     MENU_TRADE2,
     MENU_TOSS,
+    MENU_QUICK_HEAL,
     MENU_FIELD_MOVES
 };
 
@@ -462,6 +463,7 @@ static void BlitBitmapToPartyWindow_LeftColumn(u8, u8, u8, u8, u8, bool8);
 static void BlitBitmapToPartyWindow_RightColumn(u8, u8, u8, u8, u8, bool8);
 static void CursorCb_Summary(u8);
 static void CursorCb_StatEdit(u8);
+static void CursorCb_QuickHeal(u8);
 static void CursorCb_Relearn(u8);
 static void CursorCb_Switch(u8);
 static void CursorCb_Cancel1(u8);
@@ -488,6 +490,13 @@ static bool8 SetUpFieldMove_Dive(void);
 
 // static const data
 #include "data/pokemon/tutor_learnsets.h"
+
+static const u8 sText_QuickHeal[] = _("QUICK HEAL");
+static const u8 sText_QuickHealDone[] = _("{STR_VAR_1} was treated with\nmedicine from your BAG.");
+static const u8 sText_QuickHealNone[] = _("There is no suitable medicine\nin your BAG.");
+static const u8 sText_QuickHealHealthy[] = _("{STR_VAR_1} is already healthy.");
+static const u8 sText_NoItemLeft[] = _("There are none of that item left.");
+
 #include "data/party_menu.h"
 
 // code
@@ -1318,6 +1327,12 @@ static void HandleChooseMonSelection(u8 taskId, s8 *slotPtr)
                     sPartyMenuInternal->exitCallback = CB2_SetUpExitToBattleScreen;
 
                 PartyMenuRemoveWindow(&sPartyMenuInternal->windowId[1]);
+                if (!gMain.inBattle && !CheckBagHasItem(gSpecialVar_ItemId, 1))
+                {
+                    DisplayPartyMenuMessage(sText_NoItemLeft, TRUE);
+                    gTasks[taskId].func = Task_ReturnToChooseMonAfterText;
+                    break;
+                }
                 gItemUseCB(taskId, Task_ClosePartyMenuAfterText);
             }
             break;
@@ -2632,6 +2647,8 @@ static void SetPartyMonFieldSelectionActions(struct Pokemon *mons, u8 slotId)
     sPartyMenuInternal->numActions = 0;
     AppendToList(sPartyMenuInternal->actions, &sPartyMenuInternal->numActions, MENU_SUMMARY);
 	AppendToList(sPartyMenuInternal->actions, &sPartyMenuInternal->numActions, MENU_STAT_EDIT);
+    if (!GetMonData(&mons[slotId], MON_DATA_IS_EGG) && !InBattlePike() && CurrentBattlePyramidLocation() == PYRAMID_LOCATION_NONE)
+        AppendToList(sPartyMenuInternal->actions, &sPartyMenuInternal->numActions, MENU_QUICK_HEAL);
 
     // Fly: only for Flying-type Pokemon, and only while HM02 is in the bag (the move isn't needed)
     species = GetMonData(&mons[slotId], MON_DATA_SPECIES);
@@ -4275,9 +4292,135 @@ static void UpdatePartyMonAilmentGfx(u8 status, struct PartyMenuBox *menuBox)
     }
 }
 
+struct QuickHealMedicine
+{
+    u16 item;
+    u16 hp;
+};
+
+// PP items, EV berries, Sacred Ash and held items are never spent here.
+static const struct QuickHealMedicine sQuickHealMedicine[] =
+{
+    {ITEM_ORAN_BERRY, 10}, {ITEM_POTION, 20}, {ITEM_BERRY_JUICE, 20},
+    {ITEM_SITRUS_BERRY, 30}, {ITEM_SUPER_POTION, 50}, {ITEM_FRESH_WATER, 50},
+    {ITEM_SODA_POP, 60}, {ITEM_LEMONADE, 80}, {ITEM_MOOMOO_MILK, 100},
+    {ITEM_HYPER_POTION, 200}, {ITEM_MAX_POTION, 0xFFFF},
+    {ITEM_FULL_RESTORE, 0xFFFF},
+};
+
+static u16 QuickHealHPItem(struct Pokemon *mon)
+{
+    u16 missing = GetMonData(mon, MON_DATA_MAX_HP) - GetMonData(mon, MON_DATA_HP);
+    u16 best = ITEM_NONE, bestHeal = 0;
+    u32 i;
+    if (missing == 0)
+        return ITEM_NONE;
+    for (i = 0; i < ARRAY_COUNT(sQuickHealMedicine); i++)
+    {
+        u16 heal = sQuickHealMedicine[i].hp;
+        if (!CheckBagHasItem(sQuickHealMedicine[i].item, 1))
+            continue;
+        if (best == ITEM_NONE || (heal >= missing && (bestHeal < missing || heal < bestHeal))
+            || (heal < missing && bestHeal < missing && heal > bestHeal))
+        {
+            best = sQuickHealMedicine[i].item;
+            bestHeal = heal;
+        }
+    }
+    return best;
+}
+
+static u16 QuickHealStatusItem(struct Pokemon *mon)
+{
+    u32 status = GetMonData(mon, MON_DATA_STATUS);
+    u16 berry = ITEM_NONE, medicine = ITEM_NONE;
+    if (status & STATUS1_PSN_ANY) { berry = ITEM_PECHA_BERRY; medicine = ITEM_ANTIDOTE; }
+    else if (status & STATUS1_PARALYSIS) { berry = ITEM_CHERI_BERRY; medicine = ITEM_PARALYZE_HEAL; }
+    else if (status & STATUS1_SLEEP) { berry = ITEM_CHESTO_BERRY; medicine = ITEM_AWAKENING; }
+    else if (status & STATUS1_BURN) { berry = ITEM_RAWST_BERRY; medicine = ITEM_BURN_HEAL; }
+    else if (status & STATUS1_FREEZE) { berry = ITEM_ASPEAR_BERRY; medicine = ITEM_ICE_HEAL; }
+    else return ITEM_NONE;
+    if (CheckBagHasItem(medicine, 1)) return medicine;
+    if (CheckBagHasItem(berry, 1)) return berry;
+    if (CheckBagHasItem(ITEM_FULL_HEAL, 1)) return ITEM_FULL_HEAL;
+    if (CheckBagHasItem(ITEM_LAVA_COOKIE, 1)) return ITEM_LAVA_COOKIE;
+    if (CheckBagHasItem(ITEM_LUM_BERRY, 1)) return ITEM_LUM_BERRY;
+    if (CheckBagHasItem(ITEM_FULL_RESTORE, 1)) return ITEM_FULL_RESTORE;
+    return ITEM_NONE;
+}
+
+// Uses the same item-effect engine as ordinary field medicine. Only consume an
+// item after it succeeds, and leave Pokemon identity/IV/EV/link data untouched.
+static bool8 QuickHealPartyMon(u8 slot)
+{
+    struct Pokemon *mon = &gPlayerParty[slot];
+    u16 item, i;
+    bool8 used = FALSE;
+    if (gMain.inBattle || GetMonData(mon, MON_DATA_IS_EGG) || GetMonData(mon, MON_DATA_SPECIES) == SPECIES_NONE)
+        return FALSE;
+    for (i = 0; i < 100; i++)
+    {
+        if (GetMonData(mon, MON_DATA_HP) == 0)
+        {
+            if (CheckBagHasItem(ITEM_REVIVE, 1)) item = ITEM_REVIVE;
+            else if (CheckBagHasItem(ITEM_MAX_REVIVE, 1)) item = ITEM_MAX_REVIVE;
+            else break;
+        }
+        else
+        {
+            item = QuickHealStatusItem(mon);
+            if (item == ITEM_NONE)
+                item = QuickHealHPItem(mon);
+            if (item == ITEM_NONE)
+                break;
+        }
+        if (ExecuteTableBasedItemEffect(mon, item, slot, 0))
+            break;
+        RemoveBagItem(item, 1);
+        used = TRUE;
+    }
+    return used;
+}
+
+static void Task_QuickHealWaitForInput(u8 taskId)
+{
+    if (!IsPartyMenuTextPrinterActive() && JOY_NEW(A_BUTTON | B_BUTTON))
+    {
+        PlaySE(SE_SELECT);
+        Task_ReturnToChooseMonAfterText(taskId);
+    }
+}
+
+static void CursorCb_QuickHeal(u8 taskId)
+{
+    struct Pokemon *mon = &gPlayerParty[gPartyMenu.slotId];
+    bool8 healthy = GetMonData(mon, MON_DATA_HP) == GetMonData(mon, MON_DATA_MAX_HP)
+        && !(GetMonData(mon, MON_DATA_STATUS) & STATUS1_ANY);
+    bool8 used;
+    PartyMenuRemoveWindow(&sPartyMenuInternal->windowId[0]);
+    PartyMenuRemoveWindow(&sPartyMenuInternal->windowId[1]);
+    used = QuickHealPartyMon(gPartyMenu.slotId);
+    GetMonNickname(mon, gStringVar1);
+    StringExpandPlaceholders(gStringVar4, used ? sText_QuickHealDone : healthy ? sText_QuickHealHealthy : sText_QuickHealNone);
+    if (used)
+    {
+        PlaySE(SE_USE_ITEM);
+        DisplayPartyPokemonData(gPartyMenu.slotId);
+        SetPartyMonAilmentGfx(mon, &sPartyMenuBoxes[gPartyMenu.slotId]);
+        CopyWindowToVram(sPartyMenuBoxes[gPartyMenu.slotId].windowId, COPYWIN_GFX);
+    }
+    else
+        PlaySE(SE_SELECT);
+    DisplayPartyMenuMessage(gStringVar4, TRUE);
+    ScheduleBgCopyTilemapToVram(2);
+    gTasks[taskId].func = Task_QuickHealWaitForInput;
+}
+
 static void ChangePokemonStatsPartyScreen_CB(void)
 {
-    CB2_ReturnToPartyMenuFromSummaryScreen();
+    gPartyMenu.slotId = gSpecialVar_0x8004;
+    gPaletteFade.bufferTransferDisabled = TRUE;
+    InitPartyMenu(gPartyMenu.menuType, KEEP_PARTY_LAYOUT, gPartyMenu.action, TRUE, PARTY_MSG_DO_WHAT_WITH_MON, Task_TryCreateSelectionWindow, gPartyMenu.exitCallback);
 }
 
 static void ChangePokemonStatsPartyScreen(void)
@@ -4545,6 +4688,13 @@ static void Task_ClosePartyMenuAfterText(u8 taskId)
 {
     if (IsPartyMenuTextPrinterActive() != TRUE)
     {
+        if (!gMain.inBattle && gPartyMenu.exitCallback == CB2_ReturnToBagMenu)
+        {
+            gPartyMenu.action = PARTY_ACTION_USE_ITEM;
+            sPartyMenuInternal->exitCallback = NULL;
+            Task_ReturnToChooseMonAfterText(taskId);
+            return;
+        }
         if (gPartyMenuUseExitCallback == FALSE)
             sPartyMenuInternal->exitCallback = NULL;
         Task_ClosePartyMenu(taskId);
@@ -5256,7 +5406,8 @@ static void PartyMenuTryEvolution(u8 taskId)
     if (targetSpecies != SPECIES_NONE)
     {
         FreePartyPointers();
-        gCB2_AfterEvolution = gPartyMenu.exitCallback;
+        gCB2_AfterEvolution = !gMain.inBattle && gPartyMenu.exitCallback == CB2_ReturnToBagMenu
+            ? CB2_ShowPartyMenuForItemUse : gPartyMenu.exitCallback;
         BeginEvolutionScene(mon, targetSpecies, TRUE, gPartyMenu.slotId);
         DestroyTask(taskId);
     }
@@ -5388,7 +5539,8 @@ static void Task_SacredAshDisplayHPRestored(u8 taskId)
 void ItemUseCB_EvolutionStone(u8 taskId, TaskFunc task)
 {
     PlaySE(SE_SELECT);
-    gCB2_AfterEvolution = gPartyMenu.exitCallback;
+    gCB2_AfterEvolution = !gMain.inBattle && gPartyMenu.exitCallback == CB2_ReturnToBagMenu
+        ? CB2_ShowPartyMenuForItemUse : gPartyMenu.exitCallback;
     if (ExecuteTableBasedItemEffect_(gPartyMenu.slotId, gSpecialVar_ItemId, 0))
     {
         gPartyMenuUseExitCallback = FALSE;
