@@ -81,7 +81,7 @@ The tutor preserves shiny status, gender, ability and trainer data, while respec
 
 Defeat one opponent before throwing a Poké Ball. Running uses the selecting Pokémon's Speed against the faster living opponent. A successful attempt immediately ends the whole battle; after a failed attempt, the partner can still act. Smoke Ball and Run Away retain their guaranteed escape effects. Trainer battles are unaffected.
 
-## Other convenience features
+## Other QoL features
 
 - Physical/special move split.
 - Reusable TMs; field HMs require a compatible party Pokémon and the appropriate badge, without teaching the move.
