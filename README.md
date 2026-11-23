@@ -81,7 +81,7 @@ The tutor preserves shiny status, gender, ability and trainer data, while respec
 
 Defeat one opponent before throwing a Poké Ball. Running uses the selecting Pokémon's Speed against the faster living opponent. A successful attempt immediately ends the whole battle; after a failed attempt, the partner can still act. Smoke Ball and Run Away retain their guaranteed escape effects. Trainer battles are unaffected.
 
-## Bag and party Features
+## Bag and party features
 
 - Press **START** in the field Bag to sort the current pocket **BY TYPE** or **BY NAME**, or mark/unmark the highlighted item as a favorite.
 - Save up to **eight favorites**, shown with a **+** marker at the top of their pocket. Each pocket remembers its sort choice. Unmarking a favorite selects the **first item slot**. Key Item registration works separately.
