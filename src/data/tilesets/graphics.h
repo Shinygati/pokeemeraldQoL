@@ -1634,3 +1634,24 @@ const u16 gTilesetPalettes_UnionRoom[][16] =
 };
 
 const u32 gTilesetTiles_UnionRoom[] = INCBIN_U32("data/tilesets/secondary/union_room/tiles.4bpp.lz");
+
+const u32 gTilesetTiles_ChanseyTraining[] = INCBIN_U32("data/tilesets/secondary/chansey_training/tiles.4bpp.lz");
+const u16 gTilesetPalettes_ChanseyTraining[][16] =
+{
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/00.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/01.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/02.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/03.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/04.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/05.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/06.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/07.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/08.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/09.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/10.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/11.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/12.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/13.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/14.gbapal"),
+    INCBIN_U16("data/tilesets/secondary/chansey_training/palettes/15.gbapal"),
+};

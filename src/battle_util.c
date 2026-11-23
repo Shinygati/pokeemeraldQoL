@@ -451,7 +451,24 @@ bool8 TryRunFromBattle(u8 battler)
     }
     else
     {
-        if (!(gBattleTypeFlags & BATTLE_TYPE_DOUBLE))
+        if ((gBattleTypeFlags & BATTLE_TYPE_DOUBLE) && !(gBattleTypeFlags & BATTLE_TYPE_TRAINER))
+        {
+            u32 i, playerSpeed = gBattleMons[battler].speed, enemySpeed = 1;
+            // Only the runner's own Speed counts. Check every living opponent
+            // and use the faster one for the team's single escape attempt.
+            for (i = 0; i < gBattlersCount; i++)
+            {
+                if (gBattleMons[i].hp == 0 || (gAbsentBattlerFlags & gBitTable[i]))
+                    continue;
+                if (GetBattlerSide(i) != GetBattlerSide(battler)
+                 && gBattleMons[i].speed > enemySpeed)
+                    enemySpeed = gBattleMons[i].speed;
+            }
+            if (playerSpeed >= enemySpeed
+             || (playerSpeed * 128 / enemySpeed + gBattleStruct->runTries * 30) > (Random() & 0xFF))
+                effect++;
+        }
+        else if (!(gBattleTypeFlags & BATTLE_TYPE_DOUBLE))
         {
             if (CurrentBattlePyramidLocation() != PYRAMID_LOCATION_NONE)
             {
@@ -486,6 +503,9 @@ bool8 TryRunFromBattle(u8 battler)
 
 void HandleAction_Run(void)
 {
+    // Close the second battler's move menu before any team escape animation.
+    gBattle_BG0_X = 0;
+    gBattle_BG0_Y = 0;
     gBattlerAttacker = gBattlerByTurnOrder[gCurrentTurnActionNumber];
 
     if (gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_RECORDED_LINK))

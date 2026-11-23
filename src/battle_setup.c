@@ -386,6 +386,20 @@ static void CreateBattleStartTask(u8 transition, u16 song)
 #undef tState
 #undef tTransition
 
+// Scope the capture restriction to this training room, not wild Chansey elsewhere.
+bool8 IsChanseyTrainingRoom(void)
+{
+    return gSaveBlock1Ptr->location.mapGroup == MAP_GROUP(MAP_BATTLE_FRONTIER_LOUNGE9)
+        && gSaveBlock1Ptr->location.mapNum == MAP_NUM(MAP_BATTLE_FRONTIER_LOUNGE9);
+}
+
+bool8 IsChanseyTrainingBattle(void)
+{
+    return IsChanseyTrainingRoom()
+        && FlagGet(FLAG_CHANSEY_TRAINING_NO_CATCH)
+        && !(gBattleTypeFlags & BATTLE_TYPE_TRAINER);
+}
+
 void BattleSetup_StartWildBattle(void)
 {
     if (GetSafariZoneFlag())
@@ -406,6 +420,10 @@ static void DoStandardWildBattle(void)
     StopPlayerAvatar();
     gMain.savedCallback = CB2_EndWildBattle;
     gBattleTypeFlags = 0;
+    if (gSaveBlock2Ptr->optionsDoubleWildBattles
+     && GetMonData(&gEnemyParty[1], MON_DATA_SPECIES) != SPECIES_NONE
+     && GetMonsStateToDoubles() == PLAYER_HAS_TWO_USABLE_MONS)
+        gBattleTypeFlags |= BATTLE_TYPE_DOUBLE;
     if (CurrentBattlePyramidLocation() != PYRAMID_LOCATION_NONE)
     {
         VarSet(VAR_TEMP_PLAYING_PYRAMID_MUSIC, 0);

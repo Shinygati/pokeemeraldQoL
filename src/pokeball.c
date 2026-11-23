@@ -394,7 +394,9 @@ static void Task_DoPokeballSendOutAnim(u8 taskId)
         gSprites[ballSpriteId].callback = SpriteCB_OpponentMonSendOut;
         break;
     default:
-        gBattlerTarget = GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT);
+        // Preserve the surviving target for a wild double battle.
+        if (!(gBattleTypeFlags & BATTLE_TYPE_DOUBLE) || (gBattleTypeFlags & BATTLE_TYPE_TRAINER))
+            gBattlerTarget = GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT);
         notSendOut = TRUE;
         break;
     }

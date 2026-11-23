@@ -1,4 +1,5 @@
 #include "global.h"
+#include "palette.h"
 #include "berry.h"
 #include "bike.h"
 #include "field_camera.h"
@@ -259,6 +260,8 @@ void DrawDoorMetatileAt(int x, int y, u16 *tiles)
 static void DrawMetatileAt(const struct MapLayout *mapLayout, u16 offset, int x, int y)
 {
     u16 metatileId = MapGridGetMetatileIdAt(x, y);
+    u16 fullMetatileId = metatileId;
+    u16 litTiles[NUM_TILES_PER_METATILE];
     const u16 *metatiles;
 
     if (metatileId > NUM_METATILES_TOTAL)
@@ -272,7 +275,9 @@ static void DrawMetatileAt(const struct MapLayout *mapLayout, u16 offset, int x,
         metatiles = mapLayout->secondaryTileset->metatiles;
         metatileId -= NUM_METATILES_IN_PRIMARY;
     }
-    DrawMetatile(MapGridGetMetatileLayerTypeAt(x, y), metatiles + metatileId * NUM_TILES_PER_METATILE, offset);
+    CpuCopy16(metatiles + metatileId * NUM_TILES_PER_METATILE, litTiles, sizeof(litTiles));
+    ApplyOutdoorMetatileLights(fullMetatileId, litTiles);
+    DrawMetatile(MapGridGetMetatileLayerTypeAt(x, y), litTiles, offset);
 }
 
 static void DrawMetatile(s32 metatileLayerType, const u16 *tiles, u16 offset)
@@ -398,6 +403,7 @@ void CameraUpdate(void)
     int curMovementOffsetX;
     int movementSpeedX;
     int movementSpeedY;
+    bool8 mapChanged;
 
     if (gFieldCamera.callback != NULL)
         gFieldCamera.callback(&gFieldCamera);
@@ -445,12 +451,18 @@ void CameraUpdate(void)
 
     if (deltaX != 0 || deltaY != 0)
     {
-        CameraMove(deltaX, deltaY);
+        mapChanged = CameraMove(deltaX, deltaY);
         UpdateObjectEventsForCameraUpdate(deltaX, deltaY);
         RotatingGatePuzzleCameraUpdate(deltaX, deltaY);
         SetBerryTreesSeen();
         AddCameraTileOffset(&sFieldCameraOffset, deltaX * 2, deltaY * 2);
-        RedrawMapSlicesForCameraUpdate(&sFieldCameraOffset, deltaX * 2, deltaY * 2);
+        // Connections can replace the secondary graphics while cached map
+        // entries still reference light tiles from the previous tileset.
+        // Rebuild after both the map origin and camera ring offset are updated.
+        if (mapChanged && GetDayNightLightingAmount() != 0)
+            DrawWholeMapView();
+        else
+            RedrawMapSlicesForCameraUpdate(&sFieldCameraOffset, deltaX * 2, deltaY * 2);
     }
 
     AddCameraPixelOffset(&sFieldCameraOffset, movementSpeedX, movementSpeedY);

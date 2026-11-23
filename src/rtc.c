@@ -302,6 +302,13 @@ void RtcCalcLocalTime(void)
     RtcCalcTimeDifference(&sRtc, &gLocalTime, &gSaveBlock2Ptr->localTimeOffset);
 }
 
+bool8 IsDaytime(void)
+{
+    RtcCalcLocalTime();
+    return gLocalTime.hours >= DAY_NIGHT_DAY_START_HOUR
+        && gLocalTime.hours < DAY_NIGHT_NIGHT_START_HOUR;
+}
+
 void RtcInitLocalTimeOffset(s32 hour, s32 minute)
 {
     RtcCalcLocalTimeOffset(0, hour, minute, 0);

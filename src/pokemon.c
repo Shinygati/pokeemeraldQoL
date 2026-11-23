@@ -51,12 +51,6 @@
 #include "roamer.h"
 #include "constants/daycare.h"
 
-#define DAY_EVO_HOUR_BEGIN       12
-#define DAY_EVO_HOUR_END         HOURS_PER_DAY
-
-#define NIGHT_EVO_HOUR_BEGIN     0
-#define NIGHT_EVO_HOUR_END       12
-
 #define FRIENDSHIP_EVO_THRESHOLD 220
 
 #define FLAG_STARTER_SHINY_0 0x40
@@ -84,8 +78,6 @@ static u32 CustomFixedIV;
 static u32 ivValue1;
 static u32 ivValue2;
 static u8 sShinyLevelOverride; // set when a legal wild shiny needs a different level from the same slot
-static u16 sLastCaughtSpecies;
-static u16 sShinyChainCount;
 static bool8 sForcedPidIvsActive; // DexNav: next CreateBoxMon uses an exact, pre-built PID/IV frame
 static u32 sForcedPid;
 static u32 sForcedIv1;
@@ -2301,43 +2293,6 @@ void SetNextMonFixedPidAndIvs(u32 personality, u32 ivWord1, u32 ivWord2)
     sForcedPidIvsActive = TRUE;
 }
 
-void ResetShinyChain(void)
-{
-    sLastCaughtSpecies = 0;
-    sShinyChainCount = 0;
-}
-
-
-void UpdateShinyChain(u16 species)
-{
-    if (species == SPECIES_NONE)
-        return;
-
-    if (sLastCaughtSpecies == 0)
-    {
-        sLastCaughtSpecies = species;
-        sShinyChainCount = 1;
-    }
-    else if (species != sLastCaughtSpecies)
-    {
-        ResetShinyChain();
-    }
-    else if (sShinyChainCount < 80)
-    {
-        sShinyChainCount++;
-    }
-}
-
-u16 GetShinyChainCount(void)
-{
-    return sShinyChainCount;
-}
-
-u16 GetShinyChainSpecies(void)
-{
-    return sLastCaughtSpecies;
-}
-
 // ---- BEGIN SHINY_PID ----
 // Gen 3 PKHeX legality needs PID low, PID high and the IVs to come from one run
 // of the game's LCRNG (Method 1: lo, hi, iv1, iv2). To guarantee a shiny without
@@ -2548,8 +2503,9 @@ static u32 BuildPidAndIvs(u16 species, u8 nature, bool32 needShiny, u32 shinyVal
 static u32 RollShinyPersonalityChance(u16 species, u8 targetNature, u8 ForceShiny, bool32 keepTraits, u32 traitsPersonality)
 {
     u32 personality;
-    u32 BoostedShinyValue;
-    u32 chainCount;
+    u32 shinyChecks;
+    u32 i;
+    bool8 shinyRoll = FALSE;
     u32 Tmp_RNG;
     bool32 needShiny = FALSE;
     u8 PIDNature;
@@ -2559,28 +2515,8 @@ static u32 RollShinyPersonalityChance(u16 species, u8 targetNature, u8 ForceShin
     Tmp_RNG = gRngValue;
     sShinyLevelOverride = 0;
 
-    // The chain bonus only applies to the species that was caught last.
-    if (GetShinyChainCount() > 0 && species == GetShinyChainSpecies())
-        chainCount = GetShinyChainCount();
-    else
-        chainCount = 0;
-
-    if (FlagGet(0x037))
-    {
-        /* Reach 1/256 at 40 caught Pokemon. */
-        if (chainCount >= 80)
-            BoostedShinyValue = 256;
-        else
-            BoostedShinyValue = 4096 - (chainCount * 48);
-    }
-    else
-    {
-        /* Reach 1/512 at 40 caught Pokemon. */
-        if (chainCount >= 80)
-            BoostedShinyValue = 512;
-        else
-            BoostedShinyValue = 4096 - ((chainCount * 224) / 5);
-    }
+    // Regular encounters use one 1/4096 check, or three with the Shiny Charm.
+    shinyChecks = HasShinyCharm() ? 3 : 1;
 
     if (!GetMonData(&gPlayerParty[0], MON_DATA_SANITY_IS_EGG)
         && GetMonAbility(&gPlayerParty[0]) == ABILITY_SYNCHRONIZE)
@@ -2592,16 +2528,22 @@ static u32 RollShinyPersonalityChance(u16 species, u8 targetNature, u8 ForceShin
         PIDNature = targetNature;
     }
 
-    if (ForceShiny)
-        BoostedShinyValue = 1;
-
     if (keepTraits)
     {
         gender = GetGenderFromSpeciesAndPersonality(species, traitsPersonality);
         unownLetter = GET_UNOWN_LETTER(traitsPersonality);
     }
 
-    if ((Random32() % BoostedShinyValue) == 0
+    for (i = 0; i < shinyChecks; i++)
+    {
+        if (Random32() % 4096 == 0)
+        {
+            shinyRoll = TRUE;
+            break;
+        }
+    }
+
+    if (shinyRoll || ForceShiny
         || FlagGet(FLAG_STARTER_SHINY_0)
         || FlagGet(FLAG_STARTER_SHINY_1)
         || FlagGet(FLAG_STARTER_SHINY_2))
@@ -4081,8 +4023,15 @@ case n:                                                                 \
 static union PokemonSubstruct *GetSubstruct(struct BoxPokemon *boxMon, u32 personality, u8 substructType)
 {
     union PokemonSubstruct *substruct = NULL;
+    u32 high = personality >> 3;
+    u32 sum = (high & 0xFF) + ((high >> 8) & 0xFF)
+            + ((high >> 16) & 0xFF) + (high >> 24);
+    // 256 == 1 (mod 3). The byte sum is at most 796, where this
+    // reciprocal gives exact division by 3 without a software divide.
+    // x % 24 = 8 * ((x >> 3) % 3) + (x & 7).
+    u32 order = 8 * (sum - 3 * ((sum * 43691) >> 17)) + (personality & 7);
 
-    switch (personality % 24)
+    switch (order)
     {
         SUBSTRUCT_CASE( 0,0,1,2,3)
         SUBSTRUCT_CASE( 1,0,1,3,2)
@@ -5954,6 +5903,36 @@ u8 *UseStatIncreaseItem(u16 itemId)
     return gDisplayedStringBattle;
 }
 
+// A PID change must reorder all four decrypted blocks and re-encrypt with the
+// new PID. SetMonData(PERSONALITY) alone would corrupt the stored Pokemon.
+bool8 SetMonPidIvsPreservingData(struct Pokemon *mon, u32 personality, u32 ivs)
+{
+    struct BoxPokemon *box = &mon->box;
+    union PokemonSubstruct saved[4];
+    u8 i;
+    DecryptBoxMon(box);
+    if (CalculateBoxMonChecksum(box) != box->checksum)
+    {
+        EncryptBoxMon(box);
+        return FALSE;
+    }
+    for (i = 0; i < 4; i++)
+        saved[i] = *GetSubstruct(box, box->personality, i);
+    saved[3].type3.hpIV = ivs & 31;
+    saved[3].type3.attackIV = (ivs >> 5) & 31;
+    saved[3].type3.defenseIV = (ivs >> 10) & 31;
+    saved[3].type3.speedIV = (ivs >> 15) & 31;
+    saved[3].type3.spAttackIV = (ivs >> 20) & 31;
+    saved[3].type3.spDefenseIV = (ivs >> 25) & 31;
+    box->personality = personality;
+    for (i = 0; i < 4; i++)
+        *GetSubstruct(box, personality, i) = saved[i];
+    box->checksum = CalculateBoxMonChecksum(box);
+    EncryptBoxMon(box);
+    CalculateMonStats(mon);
+    return TRUE;
+}
+
 u8 GetNature(struct Pokemon *mon)
 {
     return GetMonData(mon, MON_DATA_PERSONALITY, 0) % NUM_NATURES;
@@ -6001,13 +5980,11 @@ u16 GetEvolutionTargetSpecies(struct Pokemon *mon, u8 mode, u16 evolutionItem)
                     targetSpecies = gEvolutionTable[species][i].targetSpecies;
                 break;
             case EVO_FRIENDSHIP_DAY:
-                RtcCalcLocalTime();
-                if (gLocalTime.hours >= DAY_EVO_HOUR_BEGIN && gLocalTime.hours < DAY_EVO_HOUR_END && friendship >= FRIENDSHIP_EVO_THRESHOLD)
+                if (IsDaytime() && friendship >= FRIENDSHIP_EVO_THRESHOLD)
                     targetSpecies = gEvolutionTable[species][i].targetSpecies;
                 break;
             case EVO_FRIENDSHIP_NIGHT:
-                RtcCalcLocalTime();
-                if (gLocalTime.hours >= NIGHT_EVO_HOUR_BEGIN && gLocalTime.hours < NIGHT_EVO_HOUR_END && friendship >= FRIENDSHIP_EVO_THRESHOLD)
+                if (!IsDaytime() && friendship >= FRIENDSHIP_EVO_THRESHOLD)
                     targetSpecies = gEvolutionTable[species][i].targetSpecies;
                 break;
             case EVO_LEVEL:

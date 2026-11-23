@@ -28,6 +28,8 @@
 #include "window.h"
 #include "constants/rgb.h"
 #include "constants/songs.h"
+#include "constants/vars.h"
+#include "rtc.h"
 
 enum
 {
@@ -4382,6 +4384,115 @@ u16 GetKantoPokedexCount(u8 caseID)
         }
     }
     return count;
+}
+
+// The charm rewards seeing every National Dex entry; catching is optional.
+bool16 HasSeenAllNationalMons(void)
+{
+    u16 dex;
+
+    for (dex = 1; dex <= NATIONAL_DEX_COUNT; dex++)
+        if (!GetSetPokedexFlag(dex, FLAG_GET_SEEN))
+            return FALSE;
+    return TRUE;
+}
+
+static u32 NextDailyDexHintRandom(u32 *state)
+{
+    *state = *state * 1664525 + 1013904223;
+    return *state;
+}
+
+u16 BufferDailyMissingDexHints(void)
+{
+    static const u16 hintVars[3] = {VAR_DAILY_DEX_HINT_1, VAR_DAILY_DEX_HINT_2, VAR_DAILY_DEX_HINT_3};
+    u8 *strings[3] = {gStringVar1, gStringVar2, gStringVar3};
+    u16 choices[3] = {0}, day, count, missing = 0, dex, slot, i, shown = 0;
+    u32 random;
+
+    RtcCalcLocalTime();
+    day = (u16)gLocalTime.days + 1;
+    if (VarGet(VAR_DAILY_DEX_HINT_DAY) != day)
+    {
+        // Player/day seed also prevents rerolling by reloading an older save.
+        random = (u32)day * 2654435761u;
+        for (i = 0; i < TRAINER_ID_LENGTH; i++)
+            random = (random * 33) ^ gSaveBlock2Ptr->playerTrainerId[i];
+        count = NextDailyDexHintRandom(&random) % 3 + 1;
+        for (dex = 1; dex <= NATIONAL_DEX_COUNT; dex++)
+        {
+            if (GetSetPokedexFlag(dex, FLAG_GET_SEEN))
+                continue;
+            missing++;
+            if (missing <= count)
+                choices[missing - 1] = dex;
+            else
+            {
+                slot = NextDailyDexHintRandom(&random) % missing;
+                if (slot < count)
+                    choices[slot] = dex;
+            }
+        }
+        if (count > missing)
+            count = missing;
+        for (i = 0; i < 3; i++)
+            VarSet(hintVars[i], choices[i]);
+        VarSet(VAR_DAILY_DEX_HINT_COUNT, count);
+        VarSet(VAR_DAILY_DEX_HINT_DAY, day);
+    }
+    count = VarGet(VAR_DAILY_DEX_HINT_COUNT);
+    if (count > 3)
+        count = 3;
+    for (i = 0; i < count; i++)
+    {
+        dex = VarGet(hintVars[i]);
+        // A suggested species can be found before the day's next conversation.
+        if (dex == 0 || dex > NATIONAL_DEX_COUNT || GetSetPokedexFlag(dex, FLAG_GET_SEEN))
+            continue;
+        StringCopy(strings[shown++], gSpeciesNames[NationalPokedexNumToSpecies(dex)]);
+    }
+    return shown;
+}
+
+// Return the next of today's choices that the player has not viewed yet.
+// Do not regenerate the daily list as its entries become Seen.
+u16 GetNextDailyDexHintSpecies(void)
+{
+    static const u16 hintVars[3] = {VAR_DAILY_DEX_HINT_1, VAR_DAILY_DEX_HINT_2, VAR_DAILY_DEX_HINT_3};
+    u16 i, dex, species, count = VarGet(VAR_DAILY_DEX_HINT_COUNT);
+
+    if (count > 3)
+        count = 3;
+    for (i = 0; i < count; i++)
+    {
+        dex = VarGet(hintVars[i]);
+        if (dex == 0 || dex > NATIONAL_DEX_COUNT || GetSetPokedexFlag(dex, FLAG_GET_SEEN))
+            continue;
+        species = NationalPokedexNumToSpecies(dex);
+        StringCopy(gStringVar1, gSpeciesNames[species]);
+        return species;
+    }
+    return SPECIES_NONE;
+}
+
+// Called only after the picture and its dialogue have been displayed.
+void RegisterDailyDexHintSeen(void)
+{
+    static const u16 hintVars[3] = {VAR_DAILY_DEX_HINT_1, VAR_DAILY_DEX_HINT_2, VAR_DAILY_DEX_HINT_3};
+    u16 i, dex, count = VarGet(VAR_DAILY_DEX_HINT_COUNT);
+
+    if (count > 3)
+        count = 3;
+    for (i = 0; i < count; i++)
+    {
+        dex = VarGet(hintVars[i]);
+        if (dex != 0 && dex <= NATIONAL_DEX_COUNT
+         && NationalPokedexNumToSpecies(dex) == gSpecialVar_0x8005)
+        {
+            GetSetPokedexFlag(dex, FLAG_SET_SEEN);
+            return;
+        }
+    }
 }
 
 bool16 HasAllHoennMons(void)

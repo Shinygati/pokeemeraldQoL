@@ -3,6 +3,10 @@
 
 #include "siirtc.h"
 
+// Shared by the lighting cycle and time-dependent evolutions.
+#define DAY_NIGHT_DAY_START_HOUR 6
+#define DAY_NIGHT_NIGHT_START_HOUR 18
+
 #define RTC_INIT_ERROR         0x0001
 #define RTC_INIT_WARNING       0x0002
 
@@ -40,6 +44,7 @@ void FormatDecimalDate(u8 *dest, s32 year, s32 month, s32 day);
 void FormatHexDate(u8 *dest, s32 year, s32 month, s32 day);
 void RtcCalcTimeDifference(struct SiiRtcInfo *rtc, struct Time *result, struct Time *t);
 void RtcCalcLocalTime(void);
+bool8 IsDaytime(void);
 void RtcInitLocalTimeOffset(s32 hour, s32 minute);
 void RtcCalcLocalTimeOffset(s32 days, s32 hours, s32 minutes, s32 seconds);
 void CalcTimeDifference(struct Time *result, struct Time *t1, struct Time *t2);

@@ -1,6 +1,8 @@
 #include "global.h"
 #include "item_use.h"
 #include "battle.h"
+#include "battle_setup.h"
+#include "battle_anim.h"
 #include "battle_pyramid.h"
 #include "battle_pyramid_bag.h"
 #include "berry.h"
@@ -990,8 +992,41 @@ void ItemUseOutOfBattle_EvolutionStone(u8 taskId)
     SetUpItemUseCallback(taskId);
 }
 
+static void Task_ConfirmRejectedBallMessage(u8 taskId)
+{
+    if (JOY_NEW(A_BUTTON | B_BUTTON))
+        CloseItemMessage(taskId);
+}
+
+static void Task_ReleaseRejectedBallMessage(u8 taskId)
+{
+    if (!JOY_HELD(A_BUTTON | B_BUTTON))
+        gTasks[taskId].func = Task_ConfirmRejectedBallMessage;
+}
+
+static void Task_KeepRejectedBallMessage(u8 taskId)
+{
+    gTasks[taskId].func = Task_ReleaseRejectedBallMessage;
+}
+
+static const u8 sText_TwoWildMonsBall[] = _("There are two wild POKéMON!\nWeaken one until it faints first.");
+
+static const u8 sText_TrainingChanseyNoCatch[] = _("These CHANSEY belong to the\ntraining room. They can't be caught!");
+
 void ItemUseInBattle_PokeBall(u8 taskId)
 {
+    if (IsChanseyTrainingBattle())
+    {
+        DisplayItemMessage(taskId, FONT_NORMAL, sText_TrainingChanseyNoCatch, Task_KeepRejectedBallMessage);
+        return;
+    }
+    if ((gBattleTypeFlags & BATTLE_TYPE_DOUBLE) && !(gBattleTypeFlags & BATTLE_TYPE_TRAINER)
+     && gBattleMons[GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT)].hp != 0
+     && gBattleMons[GetBattlerAtPosition(B_POSITION_OPPONENT_RIGHT)].hp != 0)
+    {
+        DisplayItemMessage(taskId, FONT_NORMAL, sText_TwoWildMonsBall, Task_KeepRejectedBallMessage);
+        return;
+    }
     if (IsPlayerPartyAndPokemonStorageFull() == FALSE) // have room for mon?
     {
         RemoveBagItem(gSpecialVar_ItemId, 1);

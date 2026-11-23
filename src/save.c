@@ -3,6 +3,7 @@
 #include "gba/flash_internal.h"
 #include "fieldmap.h"
 #include "save.h"
+#include "item.h"
 #include "task.h"
 #include "decompress.h"
 #include "load_save.h"
@@ -710,6 +711,7 @@ u8 HandleSavingData(u8 saveType)
     u32 *backupVar = gTrainerHillVBlankCounter;
     u8 *tempAddr;
 
+    RestorePermanentKeyItems();
     gTrainerHillVBlankCounter = NULL;
     UpdateSaveAddresses();
     switch (saveType)

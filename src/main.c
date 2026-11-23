@@ -94,8 +94,6 @@ void AgbMain(void)
 {
     // Modern compilers are liberal with the stack on entry to this function,
     // so RegisterRamReset may crash if it resets IWRAM.
-	u32 now;
-	u32 LockTime;
     RegisterRamReset(RESET_ALL);
 	*(vu16 *)BG_PLTT = RGB_WHITE; // Set the backdrop to white on startup
     InitGpuRegManager();
@@ -146,19 +144,7 @@ void AgbMain(void)
             rfu_waitREQComplete();
             DoSoftReset();
         }
-		
-		now = RtcGetAbsoluteMinuteCount();
-		
-		if (FlagGet(0x037) && !FlagGet(0x038))
-		{
-			FlagSet(0x038);
-			LockTime = now + 60; // 1 hour
-		}
-		if (FlagGet(0x038) && now >= LockTime)
-		{
-			FlagClear(0x037);
-			FlagClear(0x038);
-		}
+
         if (Overworld_SendKeysToLinkIsRunning() == TRUE)
         {
             gLinkTransferringData = TRUE;

@@ -3916,7 +3916,7 @@ u8 FldEff_CaveDust(void)
     if (spriteId != MAX_SPRITES)
     {
         gSprites[spriteId].coordOffsetEnabled = TRUE;
-        gSprites[spriteId].data[0] = 22;
+        gSprites[spriteId].data[0] = FLDEFF_CAVE_DUST;
     }
     
     return spriteId;

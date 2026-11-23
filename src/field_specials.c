@@ -2321,7 +2321,7 @@ void ShowScrollableMultichoice(void)
         break;
     case SCROLL_MULTI_BF_EXCHANGE_CORNER_VITAMIN_VENDOR:
         task->tMaxItemsOnScreen = MAX_SCROLL_MULTI_ON_SCREEN;
-        task->tNumItems = 7;
+        task->tNumItems = 1;
         task->tLeft = 14;
         task->tTop = 1;
         task->tWidth = 15;
@@ -2341,7 +2341,7 @@ void ShowScrollableMultichoice(void)
         break;
     case SCROLL_MULTI_BERRY_POWDER_VENDOR:
         task->tMaxItemsOnScreen = MAX_SCROLL_MULTI_ON_SCREEN;
-        task->tNumItems = 12;
+        task->tNumItems = 6;
         task->tLeft = 15;
         task->tTop = 1;
         task->tWidth = 14;
@@ -2454,12 +2454,6 @@ static const u8 *const sScrollableMultichoiceOptions[][MAX_SCROLL_MULTI_LENGTH] 
     },
     [SCROLL_MULTI_BF_EXCHANGE_CORNER_VITAMIN_VENDOR] =
     {
-        gText_Protein1BP,
-        gText_Calcium1BP,
-        gText_Iron1BP,
-        gText_Zinc1BP,
-        gText_Carbos1BP,
-        gText_HpUp1BP,
         gText_Exit
     },
     [SCROLL_MULTI_BF_EXCHANGE_CORNER_HOLD_ITEM_VENDOR] =
@@ -2481,12 +2475,6 @@ static const u8 *const sScrollableMultichoiceOptions[][MAX_SCROLL_MULTI_LENGTH] 
         gText_EnergyRoot80,
         gText_HealPowder50,
         gText_RevivalHerb300,
-        gText_Protein1000,
-        gText_Iron1000,
-        gText_Carbos1000,
-        gText_Calcium1000,
-        gText_Zinc1000,
-        gText_HPUp1000,
         gText_PPUp3000,
         gText_Exit
     },
@@ -4443,9 +4431,4 @@ void GiveRandomEgg(void)
 
     // Return value ignored (should only ever go to party)
     GiveMonToPlayer(&mon);
-}
-
-void GiveShinyBoost(void)
-{
-	FlagSet(0x037);
 }

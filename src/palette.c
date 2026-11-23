@@ -1,5 +1,13 @@
 #include "global.h"
 #include "palette.h"
+#include "battle.h"
+#include "battle_main.h"
+#include "event_data.h"
+#include "main.h"
+#include "overworld.h"
+#include "rtc.h"
+#include "constants/battle.h"
+#include "constants/map_types.h"
 #include "util.h"
 #include "decompress.h"
 #include "gpu_regs.h"
@@ -43,6 +51,14 @@ struct PaletteStruct
     u8 countdown2;
 };
 
+extern const struct Tileset gTileset_General;
+extern const struct Tileset gTileset_Petalburg;
+extern const struct Tileset gTileset_Rustboro;
+extern const struct Tileset gTileset_Mauville;
+
+static void UpdateDayNightLighting(void);
+static void TransferPlttBufferFrom(const void *src);
+
 static void PaletteStruct_Copy(struct PaletteStruct *, u32 *);
 static void PaletteStruct_Blend(struct PaletteStruct *, u32 *);
 static void PaletteStruct_TryEnd(struct PaletteStruct *);
@@ -64,6 +80,15 @@ static EWRAM_DATA struct PaletteStruct sPaletteStructs[NUM_PALETTE_STRUCTS] = {0
 EWRAM_DATA struct PaletteFadeControl gPaletteFade = {0};
 static EWRAM_DATA u32 sFiller = 0;
 static EWRAM_DATA u32 sPlttBufferTransferPending = 0;
+// Tint a separate transfer buffer: weather, fades and animation source palettes
+// remain untouched. Double-buffer the lookup tables for interrupt-safe updates.
+static ALIGNED(4) EWRAM_DATA u16 sDayNightPaletteBuffer[PLTT_BUFFER_SIZE] = {0};
+static EWRAM_DATA u16 sDayNightColorTables[2][2][3][32] = {0};
+static EWRAM_DATA u32 sDayNightLastClockFrame = 0;
+static EWRAM_DATA u16 sDayNightLastMinute = 0xFFFF;
+static EWRAM_DATA u8 sDayNightTableIndex = 0;
+static EWRAM_DATA bool8 sDayNightClockValid = FALSE;
+static EWRAM_DATA bool8 sDayNightTintActive = FALSE;
 EWRAM_DATA u8 ALIGNED(2) gPaletteDecompressionBuffer[PLTT_SIZE] = {0};
 
 static const struct PaletteStructTemplate sDummyPaletteStructTemplate = {
@@ -100,17 +125,226 @@ void FillPalette(u16 value, u16 offset, u16 size)
     CpuFill16(value, &gPlttBufferFaded[offset], size);
 }
 
-void TransferPlttBuffer(void)
+static void TransferPlttBufferFrom(const void *src)
 {
     if (!gPaletteFade.bufferTransferDisabled)
     {
-        void *src = gPlttBufferFaded;
-        void *dest = (void *)PLTT;
-        DmaCopy16(3, src, dest, PLTT_SIZE);
+        DmaCopy16(3, src, (void *)PLTT, PLTT_SIZE);
         sPlttBufferTransferPending = FALSE;
         if (gPaletteFade.mode == HARDWARE_FADE && gPaletteFade.active)
             UpdateBlendRegisters();
     }
+}
+
+// Night is a gentle blue darkening. Dawn is 05:00-06:00, dusk 18:00-19:00.
+// Channel scaling leaves black black, so fade-to-black remains fully black.
+static u16 GetDayNightAmount(u16 minute)
+{
+    u16 nightAmount;
+    u16 dawnStart = (DAY_NIGHT_DAY_START_HOUR - 1) * 60;
+    u16 dawnEnd = DAY_NIGHT_DAY_START_HOUR * 60;
+    u16 duskStart = DAY_NIGHT_NIGHT_START_HOUR * 60;
+    u16 duskEnd = (DAY_NIGHT_NIGHT_START_HOUR + 1) * 60;
+
+    minute %= 24 * 60;
+    if (minute < dawnStart || minute >= duskEnd)
+        nightAmount = 256;
+    else if (minute < dawnEnd)
+        nightAmount = (dawnEnd - minute) * 256 / (dawnEnd - dawnStart);
+    else if (minute < duskStart)
+        nightAmount = 0;
+    else
+        nightAmount = (minute - duskStart) * 256 / (duskEnd - duskStart);
+
+    return nightAmount;
+}
+
+// Rows are output R/G/B, columns input R/G/B (256 = full strength).
+// Field colors become darker and cooler; battle scenery shifts toward cyan.
+// Every row sums to <= 256, so packed lookup contributions add without carry.
+static const u16 sDayNightColorMatrix[2][3][3] =
+{
+    {{128, 0, 0}, {0, 128, 0}, {0, 0, 176}},
+    {{64, 16, 16}, {32, 176, 32}, {48, 160, 48}},
+};
+
+static u16 GetDayNightColorContribution(u8 input, u8 inputChannel, u16 nightAmount, bool8 battle)
+{
+    u8 outputChannel;
+    u16 coefficient, contribution, color = 0;
+
+    for (outputChannel = 0; outputChannel < 3; outputChannel++)
+    {
+        coefficient = ((inputChannel == outputChannel ? 256 : 0) * (256 - nightAmount)
+                      + sDayNightColorMatrix[battle][outputChannel][inputChannel] * nightAmount) / 256;
+        contribution = input * coefficient / 256;
+        color |= contribution << (outputChannel * 5);
+    }
+    return color;
+}
+
+static void UpdateDayNightLighting(void)
+{
+    u16 minute, nightAmount, i;
+    u8 nextTable, battle, channel;
+
+    if (!FlagGet(FLAG_SYS_CLOCK_SET))
+    {
+        sDayNightClockValid = FALSE;
+        sDayNightTintActive = FALSE;
+        sDayNightLastMinute = 0xFFFF;
+        return;
+    }
+    // RTC access belongs in the main loop, never in the VBlank interrupt.
+    if (sDayNightClockValid && gMain.vblankCounter1 - sDayNightLastClockFrame < 60)
+        return;
+    sDayNightClockValid = TRUE;
+    sDayNightLastClockFrame = gMain.vblankCounter1;
+    RtcCalcLocalTime();
+    minute = gLocalTime.hours * 60 + gLocalTime.minutes;
+    if (minute == sDayNightLastMinute)
+        return;
+    sDayNightLastMinute = minute;
+    nightAmount = GetDayNightAmount(minute);
+    if (nightAmount == 0)
+    {
+        sDayNightTintActive = FALSE;
+        return;
+    }
+    nextTable = sDayNightTableIndex ^ 1;
+    for (battle = 0; battle < 2; battle++)
+        for (channel = 0; channel < 3; channel++)
+            for (i = 0; i < 32; i++)
+                sDayNightColorTables[nextTable][battle][channel][i] = GetDayNightColorContribution(i, channel, nightAmount, battle);
+    sDayNightTableIndex = nextTable;
+    sDayNightTintActive = TRUE;
+}
+
+u16 GetDayNightLightingAmount(void)
+{
+    return sDayNightTintActive ? GetDayNightAmount(sDayNightLastMinute) : 0;
+}
+
+static bool8 DayNightMapUsesOutdoorLighting(void)
+{
+    u8 type = GetCurrentMapType();
+
+    return type == MAP_TYPE_TOWN || type == MAP_TYPE_CITY
+        || type == MAP_TYPE_ROUTE || type == MAP_TYPE_OCEAN_ROUTE;
+}
+
+static u16 BlendDayNightLight(u16 from, u16 to, u16 amount)
+{
+    u16 red = ((from & 31) * (256 - amount) + (to & 31) * amount) >> 8;
+    u16 green = (((from >> 5) & 31) * (256 - amount) + ((to >> 5) & 31) * amount) >> 8;
+    u16 blue = (((from >> 10) & 31) * (256 - amount) + ((to >> 10) & 31) * amount) >> 8;
+    return red | (green << 5) | (blue << 10);
+}
+
+static u16 GetDayNightLampColor(u16 sourceIndex, u16 palette, bool8 shade)
+{
+    u16 source = gPlttBufferUnfaded[sourceIndex];
+    u16 faded = gPlttBufferFaded[sourceIndex];
+    u16 warm = shade ? RGB(23, 19, 9) : RGB(27, 24, 14);
+    u16 brightness, fadedBrightness, scale;
+
+    // Glow follows normal menu/warp fades, and also weather's own field fades.
+    if (gPaletteFade.active && gPaletteFade.mode == NORMAL_FADE
+     && (gPaletteFade_selectedPalettes & (1 << palette)))
+        return BlendDayNightLight(warm, gPaletteFade.blendColor, gPaletteFade.y * 16);
+    brightness = (source & 31) + ((source >> 5) & 31) + ((source >> 10) & 31);
+    fadedBrightness = (faded & 31) + ((faded >> 5) & 31) + ((faded >> 10) & 31);
+    scale = brightness == 0 ? 0 : min(256, fadedBrightness * 256 / brightness);
+    return BlendDayNightLight(0, warm, scale);
+}
+
+// Each lit tile retains its exact original frame colors. Emission uses either
+// an unused color slot or a spare palette copied from the original source.
+static void ApplyDayNightWindowLights(void)
+{
+    u16 count, p, i, source, color, amount = GetDayNightLightingAmount();
+    const struct OutdoorLightPalette *palettes = GetOutdoorLightPalettes(&count);
+    const u16 *red = sDayNightColorTables[sDayNightTableIndex][0][0];
+    const u16 *green = sDayNightColorTables[sDayNightTableIndex][0][1];
+    const u16 *blue = sDayNightColorTables[sDayNightTableIndex][0][2];
+
+    for (p = 0; p < count; p++)
+    {
+        const struct OutdoorLightPalette *palette = &palettes[p];
+
+        if (palette->source != palette->destination)
+        {
+            for (i = 0; i < 16; i++)
+            {
+                source = palette->colors == NULL ? palette->source * 16 + i : palette->colors[i];
+                color = gPlttBufferFaded[source];
+                sDayNightPaletteBuffer[palette->destination * 16 + i] = red[color & 31] + green[(color >> 5) & 31] + blue[(color >> 10) & 31];
+            }
+        }
+        source = palette->reference;
+        color = GetDayNightLampColor(source, palette->source, FALSE);
+        sDayNightPaletteBuffer[palette->destination * 16 + palette->lit] = BlendDayNightLight(gPlttBufferFaded[source], color, amount);
+        if (palette->shade != palette->lit)
+        {
+            color = GetDayNightLampColor(source, palette->source, TRUE);
+            sDayNightPaletteBuffer[palette->destination * 16 + palette->shade] = BlendDayNightLight(gPlttBufferFaded[source], color, amount);
+        }
+    }
+}
+
+// Called only by the field and battle VBlank handlers. All other screens use
+// TransferPlttBuffer, so Bag, Pokemon, DexNav and other menus stay readable.
+void TransferPlttBufferWithDayNight(bool8 battle)
+{
+    u16 palette, i, color;
+    const u16 *red = sDayNightColorTables[sDayNightTableIndex][battle][0];
+    const u16 *green = sDayNightColorTables[sDayNightTableIndex][battle][1];
+    const u16 *blue = sDayNightColorTables[sDayNightTableIndex][battle][2];
+
+    if (gPaletteFade.bufferTransferDisabled)
+        return;
+    if (!sDayNightTintActive || !DayNightMapUsesOutdoorLighting()
+     || (battle && (gBattleEnvironment == BATTLE_ENVIRONMENT_CAVE
+                 || gBattleEnvironment == BATTLE_ENVIRONMENT_BUILDING
+                 || gBattleEnvironment == BATTLE_ENVIRONMENT_UNDERWATER
+                 || gBattleTypeFlags & (BATTLE_TYPE_LINK | BATTLE_TYPE_RECORDED | BATTLE_TYPE_FRONTIER))))
+    {
+        TransferPlttBuffer();
+        return;
+    }
+    CpuCopy16(gPlttBufferFaded, sDayNightPaletteBuffer, PLTT_SIZE);
+    for (palette = 0; sDayNightTintActive && palette < 32; palette++)
+    {
+        // Field: map palettes 0-12 and NPC palettes 0-11. UI palettes stay normal.
+        // Battle: scenery palettes 2-4; Pokemon, health bars and text stay normal.
+        if (battle ? (palette < 2 || palette > 4) : ((palette >= 13 && palette < 16) || palette >= 28))
+            continue;
+        for (i = palette * 16; i < (palette + 1) * 16; i++)
+        {
+            color = sDayNightPaletteBuffer[i];
+            sDayNightPaletteBuffer[i] = red[color & 31] + green[(color >> 5) & 31] + blue[(color >> 10) & 31];
+        }
+    }
+    if (!battle && sDayNightTintActive)
+        ApplyDayNightWindowLights();
+    TransferPlttBufferFrom(sDayNightPaletteBuffer);
+}
+
+void TransferPlttBuffer(void)
+{
+    TransferPlttBufferFrom(gPlttBufferFaded);
+}
+
+// Fades also upload immediately from the main loop. Use the same lighting as
+// the current field/battle screen, without tinting Bag or other menu palettes.
+static void TransferPlttBufferForCurrentScreen(void)
+{
+    if (gMain.vblankCallback == VBlankCB_Battle)
+        TransferPlttBufferWithDayNight(TRUE);
+    else if (gMain.callback2 == CB2_Overworld || gMain.callback2 == CB2_OverworldBasic)
+        TransferPlttBufferWithDayNight(FALSE);
+    else
+        TransferPlttBuffer();
 }
 
 u8 UpdatePaletteFade(void)
@@ -118,6 +352,7 @@ u8 UpdatePaletteFade(void)
     u8 result;
     u8 dummy = 0;
 
+    UpdateDayNightLighting();
     if (sPlttBufferTransferPending)
         return PALETTE_FADE_STATUS_LOADING;
 
@@ -192,7 +427,7 @@ bool8 BeginNormalPaletteFade(u32 selectedPalettes, s8 delay, u8 startY, u8 targe
 
         temp = gPaletteFade.bufferTransferDisabled;
         gPaletteFade.bufferTransferDisabled = FALSE;
-        CpuCopy32(gPlttBufferFaded, (void *)PLTT, PLTT_SIZE);
+        TransferPlttBufferForCurrentScreen();
         sPlttBufferTransferPending = FALSE;
         if (gPaletteFade.mode == HARDWARE_FADE && gPaletteFade.active)
             UpdateBlendRegisters();

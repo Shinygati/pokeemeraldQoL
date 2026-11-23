@@ -14,10 +14,12 @@
 #include "decompress.h"
 #include "dexnav.h"
 #include "event_data.h"
+#include "item.h"
 #include "event_object_movement.h"
 #include "event_scripts.h"
 #include "field_camera.h"
 #include "field_effect.h"
+#include "field_effect_helpers.h"
 #include "field_player_avatar.h"
 #include "fieldmap.h"
 #include "gpu_regs.h"
@@ -68,8 +70,6 @@ extern const u8 EventScript_DexNavLostSignal[];
 extern const u8 EventScript_DexNavTooDark[];
 extern const u8 EventScript_DexNavSearchOn[];
 extern const u8 EventScript_DexNavSearchOff[];
-
-#define SHINY_FLAG_BOOST 0x037 // this hack's timed shiny boost; counts as the Shiny Charm here
 
 enum
 {
@@ -135,6 +135,27 @@ struct DexNavSearch
     struct SpriteTemplate sparkleTemplate;
 };
 
+struct DexNavPausedSearch
+{
+    struct DexNavMon mon;
+    u8 battleLevel;
+    bool8 boosted;
+    u16 species;
+    u16 searchLevel;
+    u8 environment;
+    u8 proximity;
+    s16 tileX;
+    s16 tileY;
+    s16 startX;
+    s16 startY;
+    u8 movementCount;
+    u8 shakeType;
+    u16 frameCount;
+};
+
+EWRAM_DATA static struct DexNavPausedSearch sPausedSearch = {0};
+EWRAM_DATA static bool8 sSearchPausedForMenu = FALSE;
+
 struct DexNavGUI
 {
     MainCallback savedCallback;
@@ -170,6 +191,8 @@ static void Task_DexNavSearch(u8 taskId);
 static void DexNavUpdateSearchWindow(void);
 static void EndDexNavSearch(u8 taskId);
 static void StartGrassShake(void);
+static bool8 StartHiddenMonFieldEffectAtTile(void);
+static void StopHiddenMonFieldEffect(void);
 
 //////////////////
 //// GRAPHICS ////
@@ -327,7 +350,8 @@ static void DexNavChainIncrease(void)
 
 static void DexNavChainDecrease(void)
 {
-    if (gSaveBlock1Ptr->dexNavChain > 0)
+    // Once capped, scares and timeouts no longer chip away at the chain.
+    if (gSaveBlock1Ptr->dexNavChain > 0 && gSaveBlock1Ptr->dexNavChain < DEXNAV_CHAIN_MAX)
         gSaveBlock1Ptr->dexNavChain--;
 }
 
@@ -418,18 +442,16 @@ static u8 RollPotential(u16 searchLevel, bool8 boost)
     return potential;
 }
 
-// ORAS forced shiny check (1:1): target = ceil((6 per Search Level up to 100,
-// 2 per level up to 200, then 1 per level) / 100), and each check succeeds
-// when a 0-9999 roll is below it, i.e. target/10000. One check always runs;
-// +2 with the Shiny Charm, +4 when boosted, +5 on the 50th encounter of the
-// chain and +10 on the 100th (only those exact encounters). The encounter
-// number is the one about to happen: chain + 1. Normal odds still apply.
-static bool8 RollDexNavShiny(u16 searchLevel, u8 chain, bool8 boost)
+// Q32 probabilities keep the base chance exact without floating point.
+// The chain interpolates from normal odds to the previous capped-chain target;
+// Search Level, Shiny Charm and boosted encounters determine that target.
+static u32 GetDexNavShinyThreshold(u16 searchLevel, u8 chain, bool8 boost, bool8 charm)
 {
+    u64 one = (u64)1 << 32;
+    u64 normalFailure = one;
+    u64 failure, baseChance, cappedChance, specialFailure;
     u32 i, rolls, target = 0;
     u16 level = searchLevel;
-    u16 encounterNum = chain + 1;
-    bool8 charm = FlagGet(SHINY_FLAG_BOOST);
 
     if (level > 200)
     {
@@ -442,32 +464,32 @@ static bool8 RollDexNavShiny(u16 searchLevel, u8 chain, bool8 boost)
         level = 100;
     }
     target += level * 6;
-    target = (target + 99) / 100; // out of 10000
+    target = (target + 99) / 100;
 
-    rolls = 1;
-    if (charm)
-        rolls += 2;
-    if (boost)
-        rolls += 4;
-    if (encounterNum == 50)
-        rolls += 5;
-    if (encounterNum == 100)
-        rolls += 10;
+    // 1/4096 without the Charm; three independent checks with it.
+    for (i = 0; i < (charm ? 3 : 1); i++)
+        normalFailure = (normalFailure * (one - one / 4096)) >> 32;
+    baseChance = one - normalFailure;
 
+    rolls = 1 + (charm ? 2 : 0) + (boost ? 4 : 0);
+    specialFailure = one - ((u64)target << 32) / 10000;
+    failure = normalFailure;
     for (i = 0; i < rolls; i++)
-    {
-        if (Random32() % 10000 < target)
-            return TRUE;
-    }
+        failure = (failure * specialFailure) >> 32;
 
-    // Normal shiny odds: 1/4096, three checks with the Shiny Charm.
-    rolls = charm ? 3 : 1;
-    for (i = 0; i < rolls; i++)
-    {
-        if ((Random32() & 0xFFF) == 0)
-            return TRUE;
-    }
-    return FALSE;
+    // Preserve the 5/8 capped-chain rate, but never go below the base chance.
+    cappedChance = (one - failure) * 5 / 8;
+    if (cappedChance < baseChance)
+        cappedChance = baseChance;
+    if (chain > DEXNAV_CHAIN_MAX)
+        chain = DEXNAV_CHAIN_MAX;
+    return baseChance + (cappedChance - baseChance) * chain / DEXNAV_CHAIN_MAX;
+}
+
+static bool8 RollDexNavShiny(u16 searchLevel, u8 chain, bool8 boost)
+{
+    u32 threshold = GetDexNavShinyThreshold(searchLevel, chain, boost, HasShinyCharm());
+    return Random32() < threshold;
 }
 
 ///////////////////////////
@@ -528,7 +550,7 @@ static u8 GetSpeciesEncounterChance(u16 species, u8 environment)
 static bool8 IsDexNavBlockedHere(void)
 {
     // Frontier facilities and the Safari Zone have their own encounter rules.
-    return GetSafariZoneFlag()
+    return IsChanseyTrainingRoom() || GetSafariZoneFlag()
         || gMapHeader.mapLayoutId == LAYOUT_BATTLE_FRONTIER_BATTLE_PIKE_ROOM_WILD_MONS
         || gMapHeader.mapLayoutId == LAYOUT_BATTLE_FRONTIER_BATTLE_PYRAMID_FLOOR;
 }
@@ -549,6 +571,43 @@ bool8 DexNav_IsSearchActive(void)
 {
     return sDexNavSearchActive || sDexNavModeActive;
 }
+
+// Search mode only protects terrain where this species can actually appear.
+// Land includes encounter-enabled cave floors; surf tables are separate.
+bool8 DexNav_ShouldSuppressEncounter(u16 metatileBehavior)
+{
+    u16 species;
+    u8 environment;
+    const struct WildPokemonInfo *info;
+    bool8 water = MetatileBehavior_IsWaterWildEncounter(metatileBehavior)
+        || (TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_SURFING)
+         && MetatileBehavior_IsBridgeOverWater(metatileBehavior));
+
+    if (!DexNav_IsSearchActive() || IsDexNavBlockedHere())
+        return FALSE;
+    if (sDexNavSearchActive && sDexNavSearchDataPtr != NULL)
+    {
+        species = sDexNavSearchDataPtr->species;
+        environment = sDexNavSearchDataPtr->environment;
+    }
+    else
+    {
+        species = sDexNavModeSpecies;
+        environment = sDexNavModeEnv;
+    }
+    if (environment == ENCOUNTER_TYPE_WATER)
+    {
+        if (!water)
+            return FALSE;
+    }
+    else if (water || !MetatileBehavior_IsLandWildEncounter(metatileBehavior))
+        return FALSE;
+
+    info = GetMapWildInfo(environment);
+    return info != NULL && info->encounterRate != 0
+        && SpeciesInMapTable(species, environment);
+}
+
 
 /////////////////////////////
 //// SHINY ICON PALETTE  ////
@@ -904,13 +963,15 @@ static void DrawSearchSprites(void)
 
     // Only the mon icon is a sprite: overworld sprite palette slots are limited.
     LoadMonIconPalette(species);
+    if (IndexOfSpritePaletteTag(gMonIconPaletteTable[GetValidMonIconPalIndex(species)].tag) == 0xFF)
+        return;
     spriteId = CreateMonIcon(species, SpriteCB_MonIcon, SPECIES_ICON_X, GetSearchWindowY() + 8, 0, sDexNavSearchDataPtr->mon.pid, FALSE);
     sDexNavSearchDataPtr->iconSpriteId = spriteId;
     if (spriteId != MAX_SPRITES)
     {
         gSprites[spriteId].oam.priority = 0;
         // Shiny: the icon is shown in its shiny colours.
-        if (sDexNavSearchDataPtr->mon.shiny && IndexOfSpritePaletteTag(gSprites[spriteId].template->paletteTag) != 0xFF)
+        if (sDexNavSearchDataPtr->mon.shiny)
         {
             LoadShinyMonIconPalette(species, gSprites[spriteId].oam.paletteNum);
             SetUpGoldSparkle(species, gSprites[spriteId].oam.paletteNum);
@@ -930,11 +991,16 @@ static void RemoveDexNavWindowAndGfx(void)
     DestroyShinySparkles();
     if (sDexNavSearchDataPtr->iconSpriteId != MAX_SPRITES)
         FreeAndDestroyMonIconSprite(&gSprites[sDexNavSearchDataPtr->iconSpriteId]);
+    sDexNavSearchDataPtr->iconSpriteId = MAX_SPRITES;
+    sDexNavSearchDataPtr->goldSparkle = FALSE;
     FreeMonIconPalette(sDexNavSearchDataPtr->species);
 
+    if (sDexNavSearchDataPtr->windowId == WINDOW_NONE)
+        return;
     ClearStdWindowAndFrameToTransparent(sDexNavSearchDataPtr->windowId, FALSE);
     CopyWindowToVram(sDexNavSearchDataPtr->windowId, COPYWIN_FULL);
     RemoveWindow(sDexNavSearchDataPtr->windowId);
+    sDexNavSearchDataPtr->windowId = WINDOW_NONE;
 }
 
 ////////////////////////////
@@ -1146,6 +1212,21 @@ static bool8 DexNavPickTile(u8 environment, bool8 moving)
     return TRUE;
 }
 
+// Clear the handle before a completed effect's sprite slot can be reused.
+static void SpriteCB_DexNavFieldEffect(struct Sprite *sprite)
+{
+    if (sprite->animEnded)
+    {
+        if (sDexNavSearchDataPtr != NULL && sDexNavSearchDataPtr->fldEffSpriteId == sprite - gSprites)
+            sDexNavSearchDataPtr->fldEffSpriteId = MAX_SPRITES;
+        FieldEffectStop(sprite, sprite->data[0]);
+    }
+    else
+    {
+        UpdateObjectEventSpriteInvisibility(sprite, FALSE);
+    }
+}
+
 static bool8 StartHiddenMonFieldEffectAtTile(void)
 {
     u8 fldEffId;
@@ -1171,6 +1252,16 @@ static bool8 StartHiddenMonFieldEffectAtTile(void)
     gFieldEffectArguments[3] = 1;    // priority
     sDexNavSearchDataPtr->fldEffSpriteId = FieldEffectStart(fldEffId);
     sDexNavSearchDataPtr->fldEffId = fldEffId;
+    if (sDexNavSearchDataPtr->fldEffSpriteId != MAX_SPRITES)
+    {
+        struct Sprite *sprite = &gSprites[sDexNavSearchDataPtr->fldEffSpriteId];
+        sprite->data[0] = fldEffId;
+        sprite->callback = SpriteCB_DexNavFieldEffect;
+    }
+    else
+    {
+        FieldEffectActiveListRemove(fldEffId);
+    }
     return sDexNavSearchDataPtr->fldEffSpriteId != MAX_SPRITES;
 }
 
@@ -1393,6 +1484,10 @@ static void StartGrassShake(void)
 
     sDexNavSearchDataPtr->grassShake = TRUE;
     sDexNavSearchDataPtr->shakeSpriteId = MAX_SPRITES;
+    // Ash-covered grass is grey, while the shared leaf palette is green.
+    // Rustle its actual map tile instead of recolouring a copied sprite.
+    if (MetatileBehavior_IsAshGrass(MapGridGetMetatileBehaviorAt(x, y)))
+        return;
     if (paletteNum == 0xFF)
         paletteNum = LoadSpritePalette(&gSpritePalette_GeneralFieldEffect1);
     if (paletteNum == 0xFF)
@@ -1462,7 +1557,9 @@ static void StopHiddenMonFieldEffect(void)
 {
     if (sDexNavSearchDataPtr->grassShake)
         StopGrassShake();
-    if (sDexNavSearchDataPtr->fldEffSpriteId != MAX_SPRITES)
+    if (sDexNavSearchDataPtr->fldEffSpriteId != MAX_SPRITES
+     && gSprites[sDexNavSearchDataPtr->fldEffSpriteId].inUse
+     && gSprites[sDexNavSearchDataPtr->fldEffSpriteId].callback == SpriteCB_DexNavFieldEffect)
         FieldEffectStop(&gSprites[sDexNavSearchDataPtr->fldEffSpriteId], sDexNavSearchDataPtr->fldEffId);
     sDexNavSearchDataPtr->fldEffSpriteId = MAX_SPRITES;
 }
@@ -1475,6 +1572,34 @@ static void StopHiddenMonFieldEffect(void)
 #define tSpecies    data[2]
 #define tEnvironment data[3]
 #define tPaused     data[4]
+
+// Hide the HUD before menus or scripts write their windows and palettes.
+// Keep a heap-independent copy in case Bag/Pokemon/etc. rebuild the field.
+void DexNav_OnMenuOpen(void)
+{
+    u8 taskId = FindTaskIdByFunc(Task_DexNavSearch);
+
+    if (!sDexNavSearchActive || sDexNavSearchDataPtr == NULL || taskId == TASK_NONE)
+        return;
+    sPausedSearch.mon = sDexNavSearchDataPtr->mon;
+    sPausedSearch.battleLevel = sDexNavSearchDataPtr->battleLevel;
+    sPausedSearch.boosted = sDexNavSearchDataPtr->boosted;
+    sPausedSearch.species = sDexNavSearchDataPtr->species;
+    sPausedSearch.searchLevel = sDexNavSearchDataPtr->searchLevel;
+    sPausedSearch.environment = sDexNavSearchDataPtr->environment;
+    sPausedSearch.proximity = sDexNavSearchDataPtr->proximity;
+    sPausedSearch.tileX = sDexNavSearchDataPtr->tileX;
+    sPausedSearch.tileY = sDexNavSearchDataPtr->tileY;
+    sPausedSearch.startX = sDexNavSearchDataPtr->startX;
+    sPausedSearch.startY = sDexNavSearchDataPtr->startY;
+    sPausedSearch.movementCount = sDexNavSearchDataPtr->movementCount;
+    sPausedSearch.shakeType = sDexNavSearchDataPtr->shakeType;
+    sPausedSearch.frameCount = gTasks[taskId].tFrameCount;
+    sSearchPausedForMenu = TRUE;
+    gTasks[taskId].tPaused = TRUE;
+    RemoveDexNavWindowAndGfx();
+    StopHiddenMonFieldEffect();
+}
 
 static void FreeSearchData(void)
 {
@@ -1493,6 +1618,9 @@ static void EndSearchNotFound(u8 taskId)
 
 static void Task_SetUpDexNavSearch(u8 taskId)
 {
+    // A menu can open between finding the tile and drawing the HUD.
+    if (ArePlayerFieldControlsLocked() || gPaletteFade.active || gMain.callback2 != CB2_Overworld)
+        return;
     sDexNavSearchDataPtr->proximity = GetPlayerDistance(sDexNavSearchDataPtr->tileX, sDexNavSearchDataPtr->tileY);
     AddSearchWindow();
     DrawSearchSprites();
@@ -1513,6 +1641,7 @@ static void Task_InitDexNavSearch(u8 taskId)
     u8 environment = task->tEnvironment;
     u8 chain = GetDexNavChainFor(species);
     bool8 boost, shiny;
+    u8 potential;
 
     // too dark, or a script/menu took over since the step
     if (GetFlashLevel() > 0 || ArePlayerFieldControlsLocked() || !sDexNavModeActive)
@@ -1522,6 +1651,12 @@ static void Task_InitDexNavSearch(u8 taskId)
     }
 
     sDexNavSearchDataPtr = AllocZeroed(sizeof(struct DexNavSearch));
+    if (sDexNavSearchDataPtr == NULL)
+    {
+        DestroyTask(taskId);
+        return;
+    }
+    sDexNavSearchDataPtr->windowId = WINDOW_NONE;
     sDexNavSearchDataPtr->species = species;
     sDexNavSearchDataPtr->environment = environment;
     sDexNavSearchDataPtr->searchLevel = DexNav_GetSearchLevel(species);
@@ -1546,12 +1681,16 @@ static void Task_InitDexNavSearch(u8 taskId)
     boost = ((chain + 1) % 5 == 0) || (Random32() % 100 < 4);
     sDexNavSearchDataPtr->boosted = boost;
     shiny = RollDexNavShiny(sDexNavSearchDataPtr->searchLevel, chain, boost);
-    if (!DexNav_GenerateLegalMon(species, environment, RollPotential(sDexNavSearchDataPtr->searchLevel, boost),
-                                 shiny, &sDexNavSearchDataPtr->mon))
+    potential = RollPotential(sDexNavSearchDataPtr->searchLevel, boost);
+    // Honor the rolled result: incidental shiny frames must not bypass the odds.
+    do
     {
-        EndSearchNotFound(taskId);
-        return;
-    }
+        if (!DexNav_GenerateLegalMon(species, environment, potential, shiny, &sDexNavSearchDataPtr->mon))
+        {
+            EndSearchNotFound(taskId);
+            return;
+        }
+    } while (!shiny && sDexNavSearchDataPtr->mon.shiny);
     sDexNavSearchDataPtr->battleLevel = min(MAX_LEVEL, sDexNavSearchDataPtr->mon.level + GetDexNavLevelBonus(chain) + (boost ? 10 : 0));
     if (sDexNavSearchDataPtr->mon.shiny)
         gSoftResetDisabled = TRUE;
@@ -1603,7 +1742,7 @@ bool8 TryStartDexnavSearch(void)
     u16 val = gSaveBlock1Ptr->dexNavRegistered;
     u8 taskId;
 
-    if (!FlagGet(FLAG_SYS_POKENAV_GET) || FuncIsActiveTask(Task_InitDexNavSearch) || ArePlayerFieldControlsLocked())
+    if (!FlagGet(FLAG_SYS_POKENAV_GET) || FuncIsActiveTask(Task_InitDexNavSearch) || FuncIsActiveTask(Task_SetUpDexNavSearch) || ArePlayerFieldControlsLocked())
         return FALSE;
 
     if (sDexNavModeActive)
@@ -1630,7 +1769,7 @@ bool8 TryStartDexnavSearch(void)
 // turn up nearby (Task_InitDexNavSearch then applies its find chance).
 void DexNav_OnPlayerStep(void)
 {
-    if (!sDexNavModeActive || sDexNavSearchActive || FuncIsActiveTask(Task_InitDexNavSearch))
+    if (!sDexNavModeActive || sDexNavSearchActive || FuncIsActiveTask(Task_InitDexNavSearch) || FuncIsActiveTask(Task_SetUpDexNavSearch))
         return;
     if (sDexNavModeSteps < 255)
         sDexNavModeSteps++;
@@ -1643,6 +1782,7 @@ void DexNav_OnPlayerStep(void)
 static void EndDexNavSearch(u8 taskId)
 {
     sDexNavSearchActive = FALSE;
+    sSearchPausedForMenu = FALSE;
     gSoftResetDisabled = FALSE; // a shiny search disables it while it's out
     DestroyTask(taskId);
     if (sDexNavSearchDataPtr == NULL)
@@ -1679,18 +1819,23 @@ static void Task_DexNavSearch(u8 taskId)
     struct Task *task = &gTasks[taskId];
     u16 walked;
 
-    // Messages and other scripts (a Repel wearing off, a sign, talking to
-    // someone) just pause it, timer included. Leaving the overworld (menus,
-    // battles) ends it quietly: see DexNav_OnFieldReset and DexNav_OnBattleEnd.
-    if (ArePlayerFieldControlsLocked() == TRUE)
+    // Menus and scripts pause the encounter, including its timeout.
+    if (ArePlayerFieldControlsLocked() || gPaletteFade.active || gMain.callback2 != CB2_Overworld)
     {
         task->tPaused = TRUE;
         return;
     }
     if (task->tPaused)
     {
-        // the message box drew over the search window: put it back
         task->tPaused = FALSE;
+        if (sDexNavSearchDataPtr->windowId == WINDOW_NONE)
+        {
+            AddSearchWindow();
+            DrawSearchSprites();
+            StartHiddenMonFieldEffectAtTile();
+        }
+        sSearchPausedForMenu = FALSE;
+        // A message or menu may have overwritten the HUD graphics.
         LoadDexNavWindowGfx(sDexNavSearchDataPtr->windowId, 0x1D5, BG_PLTT_ID(14));
         PutWindowTilemap(sDexNavSearchDataPtr->windowId);
         DrawStdFrameWithCustomTileAndPalette(sDexNavSearchDataPtr->windowId, TRUE, 0x1D5, 14);
@@ -1698,11 +1843,17 @@ static void Task_DexNavSearch(u8 taskId)
         CopyWindowToVram(sDexNavSearchDataPtr->windowId, COPYWIN_FULL);
     }
 
+    // Walking/ash effects may temporarily occupy the last OBJ palette when
+    // the HUD opens. Retry after they finish instead of leaving the icon blank.
+    if (sDexNavSearchDataPtr->iconSpriteId == MAX_SPRITES && task->tFrameCount % 16 == 0)
+        DrawSearchSprites();
+
     // Walking too far away (and not standing in grass) loses the signal.
     walked = abs(gSaveBlock1Ptr->pos.x - sDexNavSearchDataPtr->startX) + abs(gSaveBlock1Ptr->pos.y - sDexNavSearchDataPtr->startY);
     if (walked > DEXNAV_WALK_AWAY_DISTANCE && !IsPlayerOnGrass())
     {
-        DexNavChainReset();
+        if (gSaveBlock1Ptr->dexNavChain < DEXNAV_CHAIN_MAX)
+            DexNavChainReset();
         EndDexNavSearchSetupScript(taskId, EventScript_DexNavLostSignal);
         return;
     }
@@ -1763,7 +1914,8 @@ static void Task_DexNavSearch(u8 taskId)
     if (sDexNavSearchDataPtr->grassShake)
     {
         if (task->tFrameCount % DEXNAV_SCAN_PERIOD == 0 && sDexNavSearchDataPtr->shakeType == GRASS_SHAKE_VIGOROUS
-         && IndexOfSpritePaletteTag(FLDEFF_PAL_TAG_GENERAL_1) != 0xFF)
+         && IndexOfSpritePaletteTag(FLDEFF_PAL_TAG_GENERAL_1) != 0xFF
+         && !MetatileBehavior_IsAshGrass(MapGridGetMetatileBehaviorAt(sDexNavSearchDataPtr->tileX, sDexNavSearchDataPtr->tileY)))
             SpawnGrassLeaves();
         // shiny patch: it shines (a sparkle with each of its two glows)
         if (sDexNavSearchDataPtr->shakeType == GRASS_SHAKE_SHINY
@@ -1795,18 +1947,51 @@ static void Task_DexNavSearch(u8 taskId)
 #undef tProximity
 #undef tFrameCount
 
-// Called when the overworld is rebuilt after a menu (Bag, Pokémon, etc.):
-// tasks and sprites were reset, so a hidden Pokémon that was out is gone.
-// The search mode stays on and another one turns up as you walk.
+// Called after the field's tasks/sprites have been reset. The old heap has
+// also been reset: only the saved encounter values may be read here.
 void DexNav_OnFieldReset(void)
 {
-    if (!sDexNavSearchActive)
+    u8 taskId;
+
+    sDexNavSearchDataPtr = NULL;
+    if (!sDexNavSearchActive || !sSearchPausedForMenu)
+    {
+        sDexNavSearchActive = FALSE;
+        gSoftResetDisabled = FALSE;
         return;
-    sDexNavSearchActive = FALSE;
-    gSoftResetDisabled = FALSE;
-    // its window and sprites went with the menu; only the search data is left
-    if (sDexNavSearchDataPtr != NULL)
-        FreeSearchData();
+    }
+    sDexNavSearchDataPtr = AllocZeroed(sizeof(struct DexNavSearch));
+    if (sDexNavSearchDataPtr == NULL)
+    {
+        sDexNavSearchActive = FALSE;
+        sSearchPausedForMenu = FALSE;
+        gSoftResetDisabled = FALSE;
+        return;
+    }
+    sDexNavSearchDataPtr->mon = sPausedSearch.mon;
+    sDexNavSearchDataPtr->battleLevel = sPausedSearch.battleLevel;
+    sDexNavSearchDataPtr->boosted = sPausedSearch.boosted;
+    sDexNavSearchDataPtr->species = sPausedSearch.species;
+    sDexNavSearchDataPtr->searchLevel = sPausedSearch.searchLevel;
+    sDexNavSearchDataPtr->environment = sPausedSearch.environment;
+    sDexNavSearchDataPtr->proximity = sPausedSearch.proximity;
+    sDexNavSearchDataPtr->tileX = sPausedSearch.tileX;
+    sDexNavSearchDataPtr->tileY = sPausedSearch.tileY;
+    sDexNavSearchDataPtr->startX = sPausedSearch.startX;
+    sDexNavSearchDataPtr->startY = sPausedSearch.startY;
+    sDexNavSearchDataPtr->movementCount = sPausedSearch.movementCount;
+    sDexNavSearchDataPtr->shakeType = sPausedSearch.shakeType;
+    sDexNavSearchDataPtr->windowId = WINDOW_NONE;
+    sDexNavSearchDataPtr->iconSpriteId = MAX_SPRITES;
+    sDexNavSearchDataPtr->fldEffSpriteId = MAX_SPRITES;
+    sDexNavSearchDataPtr->shakeSpriteId = MAX_SPRITES;
+    sDexNavSearchDataPtr->sparkleSpriteIds[0] = MAX_SPRITES;
+    sDexNavSearchDataPtr->sparkleSpriteIds[1] = MAX_SPRITES;
+    gSoftResetDisabled = sDexNavSearchDataPtr->mon.shiny;
+    taskId = CreateTask(Task_DexNavSearch, 0);
+    gTasks[taskId].data[0] = sDexNavSearchDataPtr->proximity;
+    gTasks[taskId].data[1] = sPausedSearch.frameCount;
+    gTasks[taskId].data[4] = TRUE;
 }
 
 // Called when the map changes (warps and walking across map borders).
@@ -1815,15 +2000,21 @@ void DexNav_OnMapChange(void)
     u8 taskId;
 
     // Leaving the area (any map change: routes, doors, Fly...) breaks the chain,
-    // and loses the Pokémon if a search is running.
+    // and loses the Pokémon if a search is running, even at chain 100.
     DexNavChainReset();
+    sSearchPausedForMenu = FALSE;
     if (!sDexNavSearchActive)
         return;
     taskId = FindTaskIdByFunc(Task_DexNavSearch);
     if (taskId != TASK_NONE)
         EndDexNavSearch(taskId);
     else
+    {
+        // A full-screen menu already discarded the old heap and sprite task.
         sDexNavSearchActive = FALSE;
+        sDexNavSearchDataPtr = NULL;
+        gSoftResetDisabled = FALSE;
+    }
 }
 
 // Called the moment a DexNav Pokémon is caught: it goes back to its legal
@@ -1874,6 +2065,7 @@ void DexNav_OnBattleEnd(void)
     if (sDexNavSearchActive && !gDexnavBattle)
     {
         sDexNavSearchActive = FALSE;
+        sSearchPausedForMenu = FALSE;
         sDexNavSearchDataPtr = NULL;
         gSoftResetDisabled = FALSE;
     }

@@ -36,6 +36,8 @@ void FishingWildEncounter(u8 rod);
 u16 GetLocalWildMon(bool8 *isWaterMon);
 u16 GetLocalWaterMon(void);
 bool8 UpdateRepelCounter(void);
+struct Pokemon;
+bool8 NatureTutor_IsLegalOrigin(struct Pokemon *mon, u32 pidSeed, u8 method);
 bool8 TryBuildLegalWildShiny(u32 shinyXor, u32 *pidOut, u32 *iv1Out, u32 *iv2Out, u8 *levelOut);
 
 // DexNav

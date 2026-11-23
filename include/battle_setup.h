@@ -19,6 +19,8 @@ extern u16 gTrainerBattleOpponent_B;
 extern u16 gPartnerTrainerId;
 
 void BattleSetup_StartWildBattle(void);
+bool8 IsChanseyTrainingBattle(void);
+bool8 IsChanseyTrainingRoom(void);
 void BattleSetup_StartBattlePikeWildBattle(void);
 void BattleSetup_StartRoamerBattle(void);
 void StartWallyTutorialBattle(void);

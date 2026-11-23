@@ -4057,7 +4057,8 @@ static void VBlankCB_BattleTransition(void)
 {
     LoadOam();
     ProcessSpriteCopyRequests();
-    TransferPlttBuffer();
+    // The transition still displays field graphics until it fades to black.
+    TransferPlttBufferWithDayNight(FALSE);
 }
 
 static void GetBg0TilemapDst(u16 **tileset)

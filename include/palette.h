@@ -62,6 +62,19 @@ void LoadCompressedPalette(const u32 *src, u16 offset, u16 size);
 void LoadPalette(const void *src, u16 offset, u16 size);
 void FillPalette(u16 value, u16 offset, u16 size);
 void TransferPlttBuffer(void);
+void TransferPlttBufferWithDayNight(bool8 battle);
+u16 GetDayNightLightingAmount(void);
+struct OutdoorLightPalette
+{
+    u8 source;
+    u8 destination;
+    u8 lit;
+    u8 shade;
+    u16 reference;
+    const u16 *colors;
+};
+const struct OutdoorLightPalette *GetOutdoorLightPalettes(u16 *count);
+void ApplyOutdoorMetatileLights(u16 metatileId, u16 *tiles);
 u8 UpdatePaletteFade(void);
 void ResetPaletteFade(void);
 bool8 BeginNormalPaletteFade(u32 selectedPalettes, s8 delay, u8 startY, u8 targetY, u16 blendColor);

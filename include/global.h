@@ -524,7 +524,8 @@ struct SaveBlock2
              u16 regionMapZoom:1; // whether the map is zoomed in
 			 u16 expShare:1;
              u16 autoRun:1; // double-tap B in the field to toggle; holding B then walks
-             //u16 padding1:4;
+             u16 optionsDoubleWildBattles:1; // Regular wild encounters use two opponents
+             //u16 padding1:1;
              //u16 padding2;
     /*0x18*/ struct Pokedex pokedex;
     /*0x90*/ u8 filler_90[0x8];

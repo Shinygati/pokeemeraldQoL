@@ -6,6 +6,7 @@
 #include "task.h"
 #include "battle_transition.h"
 #include "fieldmap.h"
+#include "field_camera.h"
 
 static EWRAM_DATA struct {
     const u16 *src;
@@ -14,6 +15,73 @@ static EWRAM_DATA struct {
 } sTilesetDMA3TransferBuffer[20] = {0};
 
 static u8 sTilesetDMA3TransferBufferSize;
+static bool8 sOutdoorLightsWereActive;
+
+struct OutdoorLightPatch
+{
+    u16 key;
+    u16 entry;
+};
+
+struct OutdoorLightSet
+{
+    const struct Tileset *tileset;
+    const struct OutdoorLightPalette *palettes;
+    const struct OutdoorLightPatch *patches;
+    u16 count;
+    u16 paletteCount;
+};
+
+extern const struct Tileset gTileset_General;
+#include "data/outdoor_lights.h"
+
+static const struct OutdoorLightSet *GetOutdoorLightSet(void)
+{
+    u16 i;
+
+    if (gMapHeader.mapLayout->primaryTileset != &gTileset_General)
+        return NULL;
+    for (i = 0; i < ARRAY_COUNT(sOutdoorLightSets); i++)
+        if (gMapHeader.mapLayout->secondaryTileset == sOutdoorLightSets[i].tileset)
+            return &sOutdoorLightSets[i];
+    return NULL;
+}
+
+const struct OutdoorLightPalette *GetOutdoorLightPalettes(u16 *count)
+{
+    const struct OutdoorLightSet *set = GetOutdoorLightSet();
+
+    *count = set == NULL ? 0 : set->paletteCount;
+    return set == NULL ? NULL : set->palettes;
+}
+
+void ApplyOutdoorMetatileLights(u16 metatileId, u16 *tiles)
+{
+    const struct OutdoorLightSet *set;
+    u16 low, high, middle, first = metatileId * 8;
+
+    if (GetDayNightLightingAmount() == 0)
+        return;
+    set = GetOutdoorLightSet();
+    if (set == NULL)
+        return;
+    low = 0;
+    high = set->count;
+    while (low < high)
+    {
+        middle = (low + high) / 2;
+        if (set->patches[middle].key < first)
+            low = middle + 1;
+        else
+            high = middle;
+    }
+    while (low < set->count && set->patches[low].key < first + 8)
+    {
+        tiles[set->patches[low].key - first] = set->patches[low].entry;
+        low++;
+    }
+}
+
 static u16 sPrimaryTilesetAnimCounter;
 static u16 sPrimaryTilesetAnimCounterMax;
 static u16 sSecondaryTilesetAnimCounter;
@@ -617,6 +685,7 @@ static void _InitSecondaryTilesetAnimation(void)
 
 void InitTilesetAnim_General(void)
 {
+    sOutdoorLightsWereActive = GetDayNightLightingAmount() != 0;
     sPrimaryTilesetAnimCounter = 0;
     sPrimaryTilesetAnimCounterMax = 256;
     sPrimaryTilesetAnimCallback = TilesetAnim_General;
@@ -631,6 +700,14 @@ void InitTilesetAnim_Building(void)
 
 static void TilesetAnim_General(u16 timer)
 {
+    bool8 night = GetDayNightLightingAmount() != 0;
+
+    // Repaint stationary windows at dusk/dawn, without requiring a map reload.
+    if (sOutdoorLightsWereActive != night)
+    {
+        sOutdoorLightsWereActive = night;
+        DrawWholeMapView();
+    }
     if (timer % 16 == 0)
         QueueAnimTiles_General_Flower(timer / 16);
     if (timer % 16 == 1)

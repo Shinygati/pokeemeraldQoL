@@ -13,6 +13,7 @@
 #include "battle_pyramid.h"
 #include "battle_pyramid_bag.h"
 #include "constants/items.h"
+#include "constants/flags.h"
 #include "constants/hold_effects.h"
 
 void ItemId_GetHoldEffectParam_Script();
@@ -160,6 +161,86 @@ bool8 CheckBagHasItem(u16 itemId, u16 count)
         }
     }
     return FALSE;
+}
+
+// The reward flag also preserves ownership when an Emerald save editor removes
+// the custom item from its vanilla inventory list.
+bool8 HasShinyCharm(void)
+{
+    return FlagGet(FLAG_SHINY_CHARM)
+        || CheckBagHasItem(ITEM_SHINY_CHARM, 1)
+        || CheckPCHasItem(ITEM_SHINY_CHARM, 1);
+}
+
+// PKHeX uses vanilla Emerald pockets and does not recognize the Charm ID.
+// Keep earned rewards in permanent flags and repair their physical Key Items.
+// Work directly on the normal bag, including while saved in the Battle Pyramid.
+static void RestorePermanentKeyItem(u16 itemId, u16 flag)
+{
+    struct ItemSlot *source = NULL;
+    struct ItemSlot *empty = NULL;
+    bool8 sourceEncrypted = TRUE;
+    u32 pocket, i;
+    u16 quantity;
+
+    for (i = 0; i < BAG_KEYITEMS_COUNT; i++)
+    {
+        struct ItemSlot *slot = &gSaveBlock1Ptr->bagPocket_KeyItems[i];
+        if (slot->itemId == itemId && GetBagItemQuantity(&slot->quantity) != 0)
+        {
+            FlagSet(flag);
+            return;
+        }
+        if (empty == NULL && slot->itemId == ITEM_NONE)
+            empty = slot;
+    }
+    // An editor may move EXP. SHARE into its original Items pocket.
+    for (pocket = 0; pocket < POCKETS_COUNT && source == NULL; pocket++)
+    {
+        if (pocket == KEYITEMS_POCKET)
+            continue;
+        for (i = 0; i < gBagPockets[pocket].capacity; i++)
+        {
+            struct ItemSlot *slot = &gBagPockets[pocket].itemSlots[i];
+            if (slot->itemId == itemId && GetBagItemQuantity(&slot->quantity) != 0)
+            {
+                source = slot;
+                break;
+            }
+        }
+    }
+    for (i = 0; i < PC_ITEMS_COUNT && source == NULL; i++)
+    {
+        struct ItemSlot *slot = &gSaveBlock1Ptr->pcItems[i];
+        if (slot->itemId == itemId && GetPCItemQuantity(&slot->quantity) != 0)
+        {
+            source = slot;
+            sourceEncrypted = FALSE;
+        }
+    }
+    if (source != NULL)
+        FlagSet(flag);
+    if (!FlagGet(flag) || empty == NULL)
+        return; // Never overwrite another item; retry on the next Bag opening.
+
+    empty->itemId = itemId;
+    SetBagItemQuantity(&empty->quantity, 1);
+    if (source != NULL)
+    {
+        quantity = sourceEncrypted ? GetBagItemQuantity(&source->quantity) : GetPCItemQuantity(&source->quantity);
+        if (--quantity == 0)
+            source->itemId = ITEM_NONE;
+        if (sourceEncrypted)
+            SetBagItemQuantity(&source->quantity, quantity);
+        else
+            SetPCItemQuantity(&source->quantity, quantity);
+    }
+}
+
+void RestorePermanentKeyItems(void)
+{
+    RestorePermanentKeyItem(ITEM_SHINY_CHARM, FLAG_SHINY_CHARM);
+    RestorePermanentKeyItem(ITEM_EXP_SHARE, FLAG_RECEIVED_EXP_SHARE);
 }
 
 bool8 HasAtLeastOneBerry(void)

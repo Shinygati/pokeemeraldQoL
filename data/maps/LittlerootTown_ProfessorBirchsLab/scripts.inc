@@ -269,6 +269,7 @@ LittlerootTown_ProfessorBirchsLab_Movement_PlayerEnterLabForJohtoStarter:
 LittlerootTown_ProfessorBirchsLab_EventScript_Aide::
 	lock
 	faceplayer
+	goto_if_set FLAG_SYS_POKEDEX_GET, LittlerootTown_ProfessorBirchsLab_EventScript_DailyDexHints
 	goto_if_ge VAR_BIRCH_LAB_STATE, 3, LittlerootTown_ProfessorBirchsLab_EventScript_AideReceivedStarter
 	goto_if_set FLAG_BIRCH_AIDE_MET, LittlerootTown_ProfessorBirchsLab_EventScript_AideAlreadyMet
 	msgbox LittlerootTown_ProfessorBirchsLab_Text_BirchAwayOnFieldwork, MSGBOX_DEFAULT
@@ -992,3 +993,61 @@ LittlerootTown_ProfessorBirchsLab_Text_ScottAboardSSTidalCall:
 	.string "we meet. I'll be waiting!\p"
 	.string "… … … … … …\n"
 	.string "… … … … … Click!$"
+
+LittlerootTown_ProfessorBirchsLab_EventScript_DailyDexHints::
+	specialvar VAR_RESULT, HasSeenAllNationalMons
+	goto_if_eq VAR_RESULT, TRUE, LittlerootTown_ProfessorBirchsLab_EventScript_DexHintsComplete
+	specialvar VAR_RESULT, BufferDailyMissingDexHints
+	goto_if_eq VAR_RESULT, 0, LittlerootTown_ProfessorBirchsLab_EventScript_DexHintsFoundToday
+	msgbox LittlerootTown_ProfessorBirchsLab_Text_ShowDailyDexPictures, MSGBOX_DEFAULT
+
+LittlerootTown_ProfessorBirchsLab_EventScript_ShowNextDexPicture::
+	specialvar VAR_0x8005, GetNextDailyDexHintSpecies
+	goto_if_eq VAR_0x8005, SPECIES_NONE, LittlerootTown_ProfessorBirchsLab_EventScript_DexPicturesDone
+	showmonpic VAR_0x8005, 10, 3
+	playmoncry VAR_0x8005, CRY_MODE_NORMAL
+	waitmoncry
+	msgbox LittlerootTown_ProfessorBirchsLab_Text_DailyDexPicture, MSGBOX_DEFAULT
+	hidemonpic
+	special RegisterDailyDexHintSeen
+	goto LittlerootTown_ProfessorBirchsLab_EventScript_ShowNextDexPicture
+
+LittlerootTown_ProfessorBirchsLab_EventScript_DexPicturesDone::
+	msgbox LittlerootTown_ProfessorBirchsLab_Text_DexPicturesDone, MSGBOX_DEFAULT
+	release
+	end
+
+LittlerootTown_ProfessorBirchsLab_EventScript_DexHintsFoundToday::
+	msgbox LittlerootTown_ProfessorBirchsLab_Text_DexHintsFoundToday, MSGBOX_DEFAULT
+	release
+	end
+
+LittlerootTown_ProfessorBirchsLab_EventScript_DexHintsComplete::
+	msgbox LittlerootTown_ProfessorBirchsLab_Text_DexHintsComplete, MSGBOX_DEFAULT
+	release
+	end
+
+LittlerootTown_ProfessorBirchsLab_Text_ShowDailyDexPictures:
+	.string "I have some new POKéMON pictures.\n"
+	.string "Take a look!$"
+
+LittlerootTown_ProfessorBirchsLab_Text_DailyDexPicture:
+	.string "This is {STR_VAR_1}!\p"
+	.string "I'll record it in your Pokedex.$"
+
+LittlerootTown_ProfessorBirchsLab_Text_DexPicturesDone:
+	.string "I've added today's POKéMON to\n"
+	.string "your POKéDEX.\p"
+	.string "Come back tomorrow, and I'll have\n"
+	.string "more pictures to show you!$"
+
+LittlerootTown_ProfessorBirchsLab_Text_DexHintsFoundToday:
+	.string "You have all of today's pictures!\n"
+	.string "Come back tomorrow for more pictures.$"
+
+LittlerootTown_ProfessorBirchsLab_Text_DexHintsComplete:
+	.string "You've seen every POKéMON in the\n"
+	.string "NATIONAL POKéDEX! Congratulations!\p"
+	.string "Visit the GAME DESIGNER at the\n"
+	.string "COVE LILY MOTEL in LILYCOVE.\p"
+	.string "He has a special reward for you!$"

@@ -86,7 +86,6 @@ void InitMapFromSavedGame(void)
     LoadSavedMapView();
     RunOnLoadMapScript();
     UpdateTVScreensOnMap(gBackupMapLayout.width, gBackupMapLayout.height);
-	FlagClear(0x37);
 }
 
 void InitBattlePyramidMap(bool8 setPlayerPosition)

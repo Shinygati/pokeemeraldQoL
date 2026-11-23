@@ -1,4 +1,5 @@
 #include "global.h"
+#include "main.h"
 #include "battle_setup.h"
 #include "battle_pike.h"
 #include "battle_pyramid.h"
@@ -16,11 +17,14 @@
 #include "script.h"
 #include "tv.h"
 #include "wild_encounter.h"
+#include "dexnav.h"
 #include "constants/abilities.h"
+#include "constants/flags.h"
 #include "constants/game_stat.h"
 #include "constants/items.h"
 #include "constants/layouts.h"
 #include "constants/weather.h"
+#include "constants/region_map_sections.h"
 
 extern const u8 EventScript_RepelWoreOff[];
 
@@ -367,6 +371,7 @@ struct WildShinyContext
     bool8 safari;
     bool8 checkRepel;
     bool8 anySlotOfSpecies;
+    u8 requiredLevel; // Nature tutor: preserve the recorded encounter level.
 };
 
 // Search stages, tried in order until one finds a match. Each stage has a
@@ -416,6 +421,7 @@ static void SetWildShinyContext(const struct WildPokemon *mons, u8 type, u8 slot
     sWildShinyCtx.safari = GetSafariZoneFlag();
     sWildShinyCtx.checkRepel = (flags & WILD_CHECK_REPEL) != 0;
     sWildShinyCtx.anySlotOfSpecies = FALSE;
+    sWildShinyCtx.requiredLevel = 0;
     sWildShinyCtx.active = TRUE;
 }
 
@@ -488,6 +494,8 @@ static bool8 WildShinyTryFrame(u32 state, u8 *levelOut)
     }
 
     level = WildMonLevelFromRand(&ctx->mons[slot], levelRand);
+    if (ctx->requiredLevel != 0 && level != ctx->requiredLevel)
+        return FALSE;
     if (ctx->checkRepel && !IsWildLevelAllowedByRepel(level))
         return FALSE;
 
@@ -1019,12 +1027,9 @@ static u8 PickWildMonNature(void)
     return Random() % NUM_NATURES;
 }
 
-static void CreateWildMon(u16 species, u8 level)
+static void CreateWildMonAt(u16 species, u8 level, u8 partyIndex)
 {
-    bool32 checkCuteCharm;
-
-    ZeroEnemyPartyMons();
-    checkCuteCharm = TRUE;
+    bool32 checkCuteCharm = TRUE;
 
     switch (gSpeciesInfo[species].genderRatio)
     {
@@ -1050,19 +1055,34 @@ static void CreateWildMon(u16 species, u8 level)
         else
             gender = MON_FEMALE;
 
-        CreateMonWithGenderNatureLetter(&gEnemyParty[0], species, level, USE_RANDOM_IVS, gender, PickWildMonNature(), 0);
+        CreateMonWithGenderNatureLetter(&gEnemyParty[partyIndex], species, level, USE_RANDOM_IVS, gender, PickWildMonNature(), 0);
         return;
     }
 
-    CreateMonWithNature(&gEnemyParty[0], species, level, USE_RANDOM_IVS, PickWildMonNature());
+    CreateMonWithNature(&gEnemyParty[partyIndex], species, level, USE_RANDOM_IVS, PickWildMonNature());
 }
+static void CreateWildMon(u16 species, u8 level)
+{
+    ZeroEnemyPartyMons();
+    CreateWildMonAt(species, level, 0);
+}
+
+static bool8 CanGenerateDoubleWildBattle(void)
+{
+    return gSaveBlock2Ptr->optionsDoubleWildBattles
+        && !GetSafariZoneFlag()
+        && gMapHeader.mapLayoutId != LAYOUT_BATTLE_FRONTIER_BATTLE_PIKE_ROOM_WILD_MONS
+        && gMapHeader.mapLayoutId != LAYOUT_BATTLE_FRONTIER_BATTLE_PYRAMID_FLOOR
+        && GetMonsStateToDoubles() == PLAYER_HAS_TWO_USABLE_MONS;
+}
+
 #ifdef BUGFIX
 #define TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildPokemon, type, ability, ptr, count) TryGetAbilityInfluencedWildMonIndex(wildPokemon, type, ability, ptr, count)
 #else
 #define TRY_GET_ABILITY_INFLUENCED_WILD_MON_INDEX(wildPokemon, type, ability, ptr, count) TryGetAbilityInfluencedWildMonIndex(wildPokemon, type, ability, ptr)
 #endif
 
-static bool8 TryGenerateWildMon(const struct WildPokemonInfo *wildMonInfo, u8 area, u8 flags)
+static bool8 TryGenerateWildMonAt(const struct WildPokemonInfo *wildMonInfo, u8 area, u8 flags, u8 partyIndex)
 {
     u8 wildMonIndex = 0;
     u8 level;
@@ -1097,12 +1117,22 @@ static bool8 TryGenerateWildMon(const struct WildPokemonInfo *wildMonInfo, u8 ar
     SetWildShinyContext(wildMonInfo->wildPokemon,
                         area == WILD_AREA_LAND ? WILD_SHINY_LAND : (area == WILD_AREA_WATER ? WILD_SHINY_WATER : WILD_SHINY_ROCK_SMASH),
                         wildMonIndex, flags, wildMonInfo->encounterRate);
-    CreateWildMon(wildMonInfo->wildPokemon[wildMonIndex].species, level);
+    CreateWildMonAt(wildMonInfo->wildPokemon[wildMonIndex].species, level, partyIndex);
     ClearWildShinyContext();
     return TRUE;
 }
 
-static u16 GenerateFishingWildMon(const struct WildPokemonInfo *wildMonInfo, u8 rod)
+static bool8 TryGenerateWildMon(const struct WildPokemonInfo *wildMonInfo, u8 area, u8 flags)
+{
+    ZeroEnemyPartyMons();
+    if (!TryGenerateWildMonAt(wildMonInfo, area, flags, 0))
+        return FALSE;
+    if (CanGenerateDoubleWildBattle())
+        TryGenerateWildMonAt(wildMonInfo, area, 0, 1);
+    return TRUE;
+}
+
+static u16 GenerateFishingWildMonAt(const struct WildPokemonInfo *wildMonInfo, u8 rod, u8 partyIndex)
 {
     u8 wildMonIndex = ChooseWildMonIndex_Fishing(rod);
     u8 level = ChooseWildMonLevel(&wildMonInfo->wildPokemon[wildMonIndex]);
@@ -1110,9 +1140,19 @@ static u16 GenerateFishingWildMon(const struct WildPokemonInfo *wildMonInfo, u8 
     SetWildShinyContext(wildMonInfo->wildPokemon,
                         rod == OLD_ROD ? WILD_SHINY_OLD_ROD : (rod == GOOD_ROD ? WILD_SHINY_GOOD_ROD : WILD_SHINY_SUPER_ROD),
                         wildMonIndex, 0, 0);
-    CreateWildMon(wildMonInfo->wildPokemon[wildMonIndex].species, level);
+    CreateWildMonAt(wildMonInfo->wildPokemon[wildMonIndex].species, level, partyIndex);
     ClearWildShinyContext();
     return wildMonInfo->wildPokemon[wildMonIndex].species;
+}
+
+static u16 GenerateFishingWildMon(const struct WildPokemonInfo *wildMonInfo, u8 rod)
+{
+    u16 species;
+    ZeroEnemyPartyMons();
+    species = GenerateFishingWildMonAt(wildMonInfo, rod, 0);
+    if (CanGenerateDoubleWildBattle())
+        GenerateFishingWildMonAt(wildMonInfo, rod, 1);
+    return species;
 }
 
 static bool8 SetUpMassOutbreakEncounter(u8 flags)
@@ -1130,6 +1170,14 @@ static bool8 SetUpMassOutbreakEncounter(u8 flags)
     ClearWildShinyContext();
     for (i = 0; i < MAX_MON_MOVES; i++)
         SetMonMoveSlot(&gEnemyParty[0], gSaveBlock1Ptr->outbreakPokemonMoves[i], i);
+    if (CanGenerateDoubleWildBattle())
+    {
+        SetWildShinyContext(&sWildShinyOutbreakMon, WILD_SHINY_FIFTY, 0, 0, 0);
+        CreateWildMonAt(gSaveBlock1Ptr->outbreakPokemonSpecies, gSaveBlock1Ptr->outbreakPokemonLevel, 1);
+        ClearWildShinyContext();
+        for (i = 0; i < MAX_MON_MOVES; i++)
+            SetMonMoveSlot(&gEnemyParty[1], gSaveBlock1Ptr->outbreakPokemonMoves[i], i);
+    }
 
     return TRUE;
 }
@@ -1210,8 +1258,11 @@ bool8 StandardWildEncounter(u16 curMetatileBehavior, u16 prevMetatileBehavior)
     u16 headerId;
     struct Roamer *roamer;
 
-    // No random battles while sneaking up on a DexNav Pokémon.
-    if (DexNav_IsSearchActive())
+    if (IsChanseyTrainingRoom() && !FlagGet(FLAG_SYS_GAME_CLEAR))
+        return FALSE;
+
+    // Protect only the searched species' current map and encounter terrain.
+    if (DexNav_ShouldSuppressEncounter(curMetatileBehavior))
         return FALSE;
 
     if (sWildEncountersDisabled == TRUE)
@@ -1448,6 +1499,12 @@ void FishingWildEncounter(u8 rod)
         SetWildShinyContext(&sWildFeebas, WILD_SHINY_FIFTY, 0, 0, 0);
         CreateWildMon(species, level);
         ClearWildShinyContext();
+        if (CanGenerateDoubleWildBattle())
+        {
+            SetWildShinyContext(&sWildFeebas, WILD_SHINY_FIFTY, 0, 0, 0);
+            CreateWildMonAt(species, level, 1);
+            ClearWildShinyContext();
+        }
     }
     else
     {
@@ -1626,4 +1683,116 @@ static void ApplyCleanseTagEncounterRateMod(u32 *encRate)
 {
     if (GetMonData(&gPlayerParty[0], MON_DATA_HELD_ITEM) == ITEM_CLEANSE_TAG)
         *encRate = *encRate * 2 / 3;
+}
+
+// Existing static and gift encounters whose ordinary Emerald PID/IV method
+// remains valid when nature changes. Unsupported event/egg/import formats are
+// rejected by the tutor before this function is reached.
+extern const struct Evolution gEvolutionTable[NUM_SPECIES][EVOS_PER_MON];
+
+static bool8 NatureTutor_IsAncestor(u16 from, u16 to, u8 depth)
+{
+    u8 i;
+    if (from == to)
+        return TRUE;
+    if (depth == 0 || from >= NUM_SPECIES)
+        return FALSE;
+    for (i = 0; i < EVOS_PER_MON; i++)
+    {
+        u16 next = gEvolutionTable[from][i].targetSpecies;
+        if (next != SPECIES_NONE && NatureTutor_IsAncestor(next, to, depth - 1))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static bool8 NatureTutor_IsStatic(u16 species, u16 location, u8 metLevel)
+{
+    static const struct { u16 species; u16 location; } encounters[] =
+    {
+        {SPECIES_TREECKO, MAPSEC_LITTLEROOT_TOWN},
+        {SPECIES_TORCHIC, MAPSEC_LITTLEROOT_TOWN},
+        {SPECIES_MUDKIP, MAPSEC_LITTLEROOT_TOWN},
+        {SPECIES_TREECKO, MAPSEC_ROUTE_101},
+        {SPECIES_TORCHIC, MAPSEC_ROUTE_101},
+        {SPECIES_MUDKIP, MAPSEC_ROUTE_101},
+        {SPECIES_LILEEP, MAPSEC_RUSTBORO_CITY},
+        {SPECIES_ANORITH, MAPSEC_RUSTBORO_CITY},
+        {SPECIES_BELDUM, MAPSEC_MOSSDEEP_CITY},
+        {SPECIES_CASTFORM, MAPSEC_ROUTE_119},
+        {SPECIES_REGIROCK, MAPSEC_DESERT_RUINS},
+        {SPECIES_REGICE, MAPSEC_ISLAND_CAVE},
+        {SPECIES_REGISTEEL, MAPSEC_ANCIENT_TOMB},
+        {SPECIES_KYOGRE, MAPSEC_MARINE_CAVE},
+        {SPECIES_GROUDON, MAPSEC_TERRA_CAVE},
+        {SPECIES_RAYQUAZA, MAPSEC_SKY_PILLAR},
+        {SPECIES_LATIAS, MAPSEC_SOUTHERN_ISLAND},
+        {SPECIES_LATIOS, MAPSEC_SOUTHERN_ISLAND},
+        {SPECIES_SUDOWOODO, MAPSEC_BATTLE_FRONTIER},
+        {SPECIES_ELECTRODE, MAPSEC_AQUA_HIDEOUT},
+        {SPECIES_KECLEON, MAPSEC_ROUTE_119},
+        {SPECIES_KECLEON, MAPSEC_ROUTE_120},
+    };
+    u8 i;
+    for (i = 0; i < ARRAY_COUNT(encounters); i++)
+        if (encounters[i].location == location && NatureTutor_IsAncestor(encounters[i].species, species, 3))
+            return TRUE;
+    // Emerald's roaming Lati uses Method 1. All encounter metadata is retained.
+    if ((species == SPECIES_LATIAS || species == SPECIES_LATIOS) && metLevel == 40
+     && location >= MAPSEC_ROUTE_101 && location <= MAPSEC_ROUTE_134)
+        return TRUE;
+    return FALSE;
+}
+
+bool8 NatureTutor_IsLegalOrigin(struct Pokemon *mon, u32 pidSeed, u8 method)
+{
+    struct WildShinyContext saved = sWildShinyCtx;
+    u16 species = GetMonData(mon, MON_DATA_SPECIES);
+    u16 location = GetMonData(mon, MON_DATA_MET_LOCATION);
+    u8 metLevel = GetMonData(mon, MON_DATA_MET_LEVEL);
+    u32 state = LCRNG_MULT * pidSeed + LCRNG_ADD;
+    u32 pid = state >> 16;
+    u8 nature, area, slot, count, level;
+    u16 h;
+    bool8 valid = FALSE;
+    state = LCRNG_MULT * state + LCRNG_ADD;
+    pid |= state & 0xFFFF0000;
+    nature = FastMod25(pid);
+    if (NatureTutor_IsStatic(species, location, metLevel))
+        return method == 1;
+    // Safari nature/encounter generation has separate restrictions. Fail closed.
+    if (location == MAPSEC_SAFARI_ZONE || GetMonData(mon, MON_DATA_MODERN_FATEFUL_ENCOUNTER))
+        return FALSE;
+    for (h = 0; gWildMonHeaders[h].mapGroup != MAP_GROUP(MAP_UNDEFINED) && !valid; h++)
+    {
+        const struct WildPokemonHeader *header = &gWildMonHeaders[h];
+        const struct MapHeader *map = Overworld_GetMapHeaderByGroupAndId(header->mapGroup, header->mapNum);
+        if (map->regionMapSectionId != location)
+            continue;
+        for (area = 0; area < 6 && !valid; area++)
+        {
+            const struct WildPokemonInfo *info;
+            u8 type;
+            if (area == 0) { info = header->landMonsInfo; type = WILD_SHINY_LAND; count = LAND_WILD_COUNT; }
+            else if (area == 1) { info = header->waterMonsInfo; type = WILD_SHINY_WATER; count = WATER_WILD_COUNT; }
+            else if (area == 2) { info = header->rockSmashMonsInfo; type = WILD_SHINY_ROCK_SMASH; count = ROCK_WILD_COUNT; }
+            else { info = header->fishingMonsInfo; type = WILD_SHINY_OLD_ROD + area - 3; count = FISH_WILD_COUNT; }
+            if (info == NULL)
+                continue;
+            for (slot = 0; slot < count && !valid; slot++)
+            {
+                if (metLevel < min(info->wildPokemon[slot].minLevel, info->wildPokemon[slot].maxLevel)
+                 || metLevel > max(info->wildPokemon[slot].minLevel, info->wildPokemon[slot].maxLevel)
+                 || !NatureTutor_IsAncestor(info->wildPokemon[slot].species, species, 3))
+                    continue;
+                SetWildShinyContext(info->wildPokemon, type, slot, 0, info->encounterRate);
+                sWildShinyCtx.requiredLevel = metLevel;
+                // Emerald can use a matching Synchronize lead or a normal nature roll.
+                if (WildShinyFindFrame(pidSeed, nature, TRUE, &level))
+                    valid = TRUE;
+            }
+        }
+    }
+    sWildShinyCtx = saved;
+    return valid;
 }

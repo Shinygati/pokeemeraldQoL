@@ -1,58 +1,99 @@
-# Pokémon Emerald
+# Pokemon Emerald
 
-This is a decompilation of Pokémon Emerald.
+A Pokémon Emerald ROM hack built on the [pret/pokeemerald decompilation](https://github.com/pret/pokeemerald), with DexNav, expanded shiny hunting, day/night lighting and convenience features.
 
-It builds the following ROM:
+See [INSTALL.md](INSTALL.md) for the build setup. The output is `pokeemerald.gba`. This modified ROM does not use the original Emerald ROM's checksum.
 
-* [**pokeemerald.gba**](https://datomatic.no-intro.org/index.php?page=show_record&s=23&n=1961) `sha1: f3ae088181bf583e55daf962a92bb46f4f1d07b7`
+## Shiny Charm and shiny hunting
 
-To set up the repository, see [INSTALL.md](INSTALL.md).
+- Normal generated encounters use a base shiny chance of **1/4096**. The Shiny Charm gives three independent checks, approximately **1/1366**. Eggs and DexNav use their own generation systems.
+- Earn the **Shiny Charm** by showing the Game Freak NPC upstairs in **Lilycove City's Cove Lily Motel** a completed National Pokédex: **all 386 Pokémon must have been seen; catching them is not required**.
+- The Charm is a permanent Key Item with its own icon. Its effect applies automatically; it does not need to be held or used.
+- Starters can appear shiny before selection. Soft resetting is blocked while a shiny encounter is active, until the encounter ends.
 
-For contacts and other pret projects, see [pret.github.io](https://pret.github.io/).
+### Save editors
 
---------------------------------------------------------------------------------------------
+The Shiny Charm and toggleable EXP. SHARE use this hack's Key Item behavior. PKHeX may warn about them or remove them because it expects the original Emerald item layout. The game remembers earned ownership and restores missing items when opening the Bag, provided there is space. This does not add rewards that have never been earned. PKHeX itself does not recognize these custom Key Items.
 
-# Shiny Systems
+## DexNav
 
-Shiny rates have been boosted to 1/4096 and remains shiny after trading while remaining fully legal.\
-Starters can appear shiny before being selected.\
-Soft resets are now blocked when a shiny Pokémon appears until the battle ends.\
-Eggs have a new baseshiny rate of 1/2048 and increases to 1/512 with a full pokedex excluding unobtainable legendaries/mythicals.
+Open DexNav through the PokéNav. Choose a Pokémon with **A** to search, **R** to bookmark it, or **B** to leave. Search Level is tracked per species, up to **999**; the chain caps at **100**.
 
-# New RNG System
+- Searching reveals hidden Pokémon in the appropriate grass, water or cave habitat. Ordinary encounters are suppressed only where the selected Pokémon can actually appear.
+- Approach a found Pokémon carefully. Running, cycling or waiting too long can scare it away.
+- Higher Search Levels reveal more information and improve encounter potential. Boosted encounters are marked with **!**.
+- Opening menus hides the DexNav display and pauses the active encounter. Closing a menu restores the same found Pokémon.
+- Defeating or catching a DexNav Pokémon increases the chain. Catching a shiny ends the chain.
+- Before chain 100, scares and timeouts reduce the chain. **At chain 100, these no longer reduce it**, so players can keep walking and searching.
+- Running from a wild battle breaks the chain. The chain belongs to one species; starting a DexNav encounter with another species starts a new chain.
+- **Any map change breaks the chain**, including route boundaries, entering buildings, Fly and Teleport.
+- DexNav Pokémon can have a temporary battle-level bonus. On capture, their level, met level, experience and moves return to the legal encounter-table level; their PID, IVs and nature are preserved.
 
-Emeralds RNG has been fixed and drastically enhanced.\
-Initial seeds now use 32-bit seeds instead of 16-bit which allows up to 4.29 billion possible seeds rather than the base 65536 amd are generated every second instead of every minute.\
-which also takes into account of the current second/minute/hour as well as day/month/year to generate new seeds before obfuscating them for a more randomized system.
+### Current DexNav shiny odds
 
-# Breeding & Eggs
+At chain 0, odds start at **1/4096 without the Charm**, or approximately **1/1366 with it**. The chance improves toward the chain-100 target as the chain grows. Search Level, the Charm and whether the encounter is boosted determine that target.
 
-Eggs now have a chance to be produced every 128 steps instead of 256.\
-Flame Body and Magma Armor now reduce egg hatch steps in half much like in later generations.\
-Eggs can now be released.\
-Eggs will display special text if it's shiny.\
-Fixed a bug that prevented eggs from using their final hatch animation.
+Approximate odds at **chain 100**, calculated from the current fixed-point implementation:
 
-# Gameplay & Mechanics
+| Search Level | Shiny Charm | Ordinary encounter | Boosted (!) encounter |
+| --- | --- | --- | --- |
+| 100 | No | 1/1896 | 1/494 |
+| 100 | Yes | 1/632 | 1/325 |
+| 999 | No | 1/868 | 1/195 |
+| 999 | Yes | 1/290 | 1/135 |
 
-HM moves no longer need to be taught to Pokémon and can be used in the overworld if the player has a compatible Pokémon and the required badge.\
-TMs are no longer single-use items.\
-You can now run inside buildings.\
-Repels will now prompt the player to reuse them when they expire much like in later generations.\
-HP drains faster much like later generations.\
-Synchronize now works 100% of the time as long as the encounter is not shiny.\
-Implemented the Physical/Special split system from later generations.\
-Fish will always bite and uses the FRLG fishing mechanics.\
-Feebas can now be found on all tiles (will possibly replaced with a daily roll system).\
-A new NPC has been added to the battle frontier which will prompt you to save, after saving he will talk about shiny pokemon sightings, and will give you a 1 hour
-shiny boost which will be removed if the game has been reset. (1/2048 with a complete pokedex, 1/3096 otherwise.)
+These are per-encounter probabilities, not guarantees. A chain of 100 does not automatically make every subsequent encounter boosted.
 
-# UI & Quality of Life
+## Pokédex assistance
 
-Pokémon summary screen now displays stats in red/blue based on the nature.\
-Pokémon summary screen can now show both IV and EV stats.\
-PokéNav can be used to access PC boxes as long as you're not inside a cave or building.\
-Pressing R in the start menu will prompt you to save.\
-The save overwrite confirmation screen has been removed.
+After receiving the Pokédex, talk to **Professor Birch's lab aide in Littleroot Town**. Each in-game day, the aide can show **one to three randomly selected Pokémon missing from the National Pokédex**, display their picture and record them in the Pokédex. These are sighting records, not caught Pokémon. The daily selection stays the same for that day.
 
-Special thanks to everyone who worked on the decompilation project and for the guides/tutorials that allowed me to add most of these new features.
+## Day and night
+
+Lighting follows **Emerald's in-game clock**. Outdoor maps and outdoor battles change with the time of day, with dawn/dusk transitions and selected illuminated windows, lamps and building emblems at night. Daytime keeps the original colors; indoor and cave environments retain appropriate lighting.
+
+Time-based evolutions use daytime from **06:00 up to 18:00**, and nighttime from **18:00 up to 06:00**. Tent-shaped contest halls and gym signs do not receive decorative glow.
+
+## Battle Frontier training room
+
+After becoming Champion, visit the lounge **northeast of the east-side Pokémon Center**, just north of the Nature Girl's house. The entrance is on the Battle Frontier's east side.
+
+- Walk through either indoor grass patch to encounter **only Chansey, levels 55–67**, through normal wild encounter mechanics.
+- Chansey in this room cannot be caught. The restriction clears when leaving the map, including Teleport or a blackout; Chansey elsewhere remain catchable.
+- A nurse provides healing. The exit has a three-tile mat, with **only the center tile** leading outside.
+
+### Nature Tutor
+
+The scientist beside the training-room nurse offers nature changes for **₽10,000** per confirmed change.
+
+1. Choose a party Pokémon.
+2. Set each IV to **KEEP CURRENT**, **ALLOW ANY**, or a minimum/maximum range from **0–31**. The current IVs are shown while choosing.
+3. Choose a target nature. The tutor searches for up to **20 distinct compatible IV spreads**.
+4. Browse five results at a time with **Up/Down**, or page with **L/R**. Review the before/after IVs and confirm payment.
+
+IVs are listed as **HP / Attack / Defense / Sp. Atk / Sp. Def / Speed**. In a range editor, Left/Right changes a bound by one and L/R changes it by five. Keeping the current nature is supported when an IV can change. Declining the final confirmation returns to the results for comparison.
+
+The tutor preserves shiny status, gender, ability and trainer data, while respecting every selected IV constraint. It searches supported Emerald PID/IV methods and encounter frames in bounded tasks. Some combinations have fewer results or none; unsupported origins are declined. Existing unrelated legality problems, such as invalid moves, are not repaired. This is an actual PID/IV change, so save editors display the resulting nature.
+
+## Wild Doubles option
+
+**WILD DOUBLES** in Options is **OFF by default**. When enabled, ordinary grass, cave, surf, fishing and Rock Smash encounters have two opponents if the party has two usable Pokémon. DexNav targets, roamers, Safari/Frontier facilities and scripted encounters keep their original format.
+
+Defeat one opponent before throwing a Poké Ball. Running uses the selecting Pokémon's Speed against the faster living opponent. A successful attempt immediately ends the whole battle; after a failed attempt, the partner can still act. Smoke Ball and Run Away retain their guaranteed escape effects. Trainer battles are unaffected.
+
+## Other convenience features
+
+- Physical/special move split.
+- Reusable TMs; field HMs require a compatible party Pokémon and the appropriate badge, without teaching the move.
+- Running indoors and double-tap **B** to toggle autorun while outside menus.
+- A prompt to reuse Repels when they expire, faster HP bars and guaranteed fishing bites with FireRed/LeafGreen-style fishing.
+- IV/EV displays and nature-colored stats on the summary screen.
+- Remote PC access through the PokéNav outside caves and buildings.
+- **R** in the Start menu opens the save prompt; the extra overwrite confirmation is removed.
+- Toggleable party EXP. SHARE.
+- Faster breeding, Flame Body/Magma Armor hatch assistance and releasable Eggs.
+- Expanded clock-based RNG seeding.
+
+## Credits
+
+Thanks to everyone who contributed to [pret/pokeemerald](https://github.com/pret/pokeemerald) and to the guides and tutorials used for this project. For the original decompilation project's contacts and related projects, see [pret.github.io](https://pret.github.io/).

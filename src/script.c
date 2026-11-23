@@ -1,4 +1,6 @@
 #include "global.h"
+#include "field_player_avatar.h"
+#include "dexnav.h"
 #include "script.h"
 #include "event_data.h"
 #include "mystery_gift.h"
@@ -181,6 +183,8 @@ u32 ScriptReadWord(struct ScriptContext *ctx)
 
 void LockPlayerFieldControls(void)
 {
+    ResetAutoRunTapTimer();
+    DexNav_OnMenuOpen();
     sLockFieldControls = TRUE;
 }
 

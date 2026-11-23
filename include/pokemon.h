@@ -440,11 +440,7 @@ u8 GetGenderFromSpeciesAndPersonality(u16 species, u32 personality);
 void SetMultiuseSpriteTemplateToPokemon(u16 speciesTag, u8 battlerPosition);
 void SetMultiuseSpriteTemplateToTrainerBack(u16 trainerPicId, u8 battlerPosition);
 void SetMultiuseSpriteTemplateToTrainerFront(u16 trainerPicId, u8 battlerPosition);
-void ResetShinyChain(void);
 void SetNextMonFixedPidAndIvs(u32 personality, u32 ivWord1, u32 ivWord2);
-void UpdateShinyChain(u16 species);
-u16 GetShinyChainCount(void);
-u16 GetShinyChainSpecies(void);
 
 // Legal shiny PID/IV helpers (see SHINY_PID in pokemon.c)
 #define MAX_PID_SEEDS 4
@@ -491,6 +487,7 @@ bool8 PokemonUseItemEffects(struct Pokemon *mon, u16 item, u8 partyIndex, u8 mov
 bool8 HealStatusConditions(struct Pokemon *mon, u32 battlePartyId, u32 healMask, u8 battler);
 u8 GetItemEffectParamOffset(u16 itemId, u8 effectByte, u8 effectBit);
 u8 *UseStatIncreaseItem(u16 itemId);
+bool8 SetMonPidIvsPreservingData(struct Pokemon *mon, u32 personality, u32 ivs);
 u8 GetNature(struct Pokemon *mon);
 u8 GetNatureFromPersonality(u32 personality);
 u16 GetEvolutionTargetSpecies(struct Pokemon *mon, u8 mode, u16 evolutionItem);

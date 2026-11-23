@@ -2,6 +2,7 @@
 #include "event_data.h"
 #include "field_door.h"
 #include "field_camera.h"
+#include "palette.h"
 #include "fieldmap.h"
 #include "metatile_behavior.h"
 #include "task.h"
@@ -340,6 +341,17 @@ static void DrawCurrentDoorAnimFrame(const struct DoorGraphics *gfx, u32 x, u32 
     {
         // Top metatile
         BuildDoorTiles(&tiles[0], DOOR_TILE_START_SIZE1 + 0, &paletteNums[0]);
+        if (gfx->tiles == sDoorAnimTiles_PokeCenter || gfx->tiles == sDoorAnimTiles_PokeMart)
+        {
+            // The roof row is static in all three animation frames. Keep its
+            // lit emblem, while the lower row continues animating the door.
+            u16 lights[8] = {0};
+            u16 i;
+            ApplyOutdoorMetatileLights(MapGridGetMetatileIdAt(x, y - 1), lights);
+            for (i = 0; i < 2; i++)
+                if (lights[i] || lights[i + 4])
+                    tiles[i] = lights[i] ? lights[i] : lights[i + 4];
+        }
         DrawDoorMetatileAt(x, y - 1, &tiles[0]);
 
         // Bottom metatile

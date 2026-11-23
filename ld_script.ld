@@ -342,6 +342,7 @@ SECTIONS {
         src/international_string_util.o(.text);
 		src/ui_stat_editor.o(.text);
 		src/dexnav.o(.text);
+        src/nature_tutor.o(.text);
     } > ROM =0
 
     script_data :

@@ -265,11 +265,11 @@
 #define VAR_SCOTT_BF_CALL_STEP_COUNTER                   0x40F5
 #define VAR_RIVAL_RAYQUAZA_CALL_STEP_COUNTER             0x40F6
 #define VAR_DAILY_RANDOM_EGG_NPC                                0x409B // Unused Var // Unused Var
-#define VAR_UNUSED_0x40F8                                0x40F8 // Unused Var
-#define VAR_UNUSED_0x40F9                                0x40F9 // Unused Var
-#define VAR_UNUSED_0x40FA                                0x40FA // Unused Var
-#define VAR_UNUSED_0x40FB                                0x40FB // Unused Var
-#define VAR_UNUSED_0x40FC                                0x40FC // Unused Var
+#define VAR_DAILY_DEX_HINT_DAY                                0x40F8 // Daily unseen National Dex hints
+#define VAR_DAILY_DEX_HINT_COUNT                                0x40F9 // Daily unseen National Dex hints
+#define VAR_DAILY_DEX_HINT_1                                0x40FA // Daily unseen National Dex hints
+#define VAR_DAILY_DEX_HINT_2                                0x40FB // Daily unseen National Dex hints
+#define VAR_DAILY_DEX_HINT_3                                0x40FC // Daily unseen National Dex hints
 #define VAR_UNUSED_0x40FD                                0x40FD // Unused Var
 #define VAR_UNUSED_0x40FE                                0x40FE // Unused Var
 #define VAR_UNUSED_0x40FF                                0x40FF // Unused Var

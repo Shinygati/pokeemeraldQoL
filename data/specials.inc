@@ -345,6 +345,8 @@ gSpecials::
 	def_special Script_FadeOutMapMusic
 	def_special SetPacifidlogTMReceivedDay
 	def_special GetDaysUntilPacifidlogTMAvailable
+	def_special HasSeenAllNationalMons
+	def_special BufferDailyMissingDexHints
 	def_special HasAllHoennMons
 	def_special MonOTNameNotPlayer
 	def_special BufferLottoTicketNumber
@@ -536,4 +538,16 @@ gSpecials::
 	def_special CloseDeptStoreElevatorWindow
 	def_special TrySetBattleTowerLinkType
 	def_special GiveRandomEgg
-	def_special GiveShinyBoost
+	def_special GetNextDailyDexHintSpecies
+	def_special RegisterDailyDexHintSeen
+	def_special NatureTutor_Prepare
+	def_special NatureTutor_ShowMenu
+	def_special NatureTutor_Preview
+	def_special NatureTutor_Apply
+	def_special NatureTutor_ShowStats
+	def_special NatureTutor_FindNature
+	def_special NatureTutor_ShowResults
+	def_special NatureTutor_SelectOffer
+	def_special NatureTutor_ShowMoney
+	def_special NatureTutor_HideMoney
+	def_special NatureTutor_BufferText

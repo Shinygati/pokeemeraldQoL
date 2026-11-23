@@ -2103,7 +2103,7 @@ void VBlankCB_Battle(void)
     SetGpuReg(REG_OFFSET_WIN1V, gBattle_WIN1V);
     LoadOam();
     ProcessSpriteCopyRequests();
-    TransferPlttBuffer();
+    TransferPlttBufferWithDayNight(TRUE);
     ScanlineEffect_InitHBlankDmaTransfer();
 }
 
@@ -3147,7 +3147,8 @@ static void BattleStartClearSetData(void)
     for (i = 0; i < sizeof(struct BattleResults); i++)
         dataPtr[i] = 0;
 
-    gBattleResults.shinyWildMon = IsMonShiny(&gEnemyParty[0]);
+    gBattleResults.shinyWildMon = IsMonShiny(&gEnemyParty[0])
+        || ((gBattleTypeFlags & BATTLE_TYPE_DOUBLE) && IsMonShiny(&gEnemyParty[1]));
 
     gBattleStruct->arenaLostPlayerMons = 0;
     gBattleStruct->arenaLostOpponentMons = 0;
@@ -4436,6 +4437,35 @@ static void HandleTurnActionSelectionState(void)
                     }
                     break;
                 case B_ACTION_RUN:
+                    // A wild-double escape is resolved before asking the partner
+                    // for a move. A failed attempt spends only this mon's action.
+                    if ((gBattleTypeFlags & BATTLE_TYPE_DOUBLE)
+                     && !(gBattleTypeFlags & (BATTLE_TYPE_TRAINER | BATTLE_TYPE_LINK | BATTLE_TYPE_RECORDED_LINK))
+                     && GetBattlerSide(gActiveBattler) == B_SIDE_PLAYER)
+                    {
+                        if (gBattleControllerExecFlags != 0)
+                            break;
+                        gBattlerAttacker = gActiveBattler;
+                        // The message window can still hold the previous failed attempt.
+                        // Blank it before scrolling it back on screen for this Run.
+                        BattlePutTextOnWindow(gText_EmptyString3, B_WIN_MSG);
+                        gBattle_BG0_X = 0;
+                        gBattle_BG0_Y = 0;
+                        if (TryRunFromBattle(gActiveBattler))
+                        {
+                            gHitMarker |= HITMARKER_RUN;
+                            gBattleMainFunc = HandleEndTurn_RanFromBattle;
+                            return;
+                        }
+                        gChosenActionByBattler[gActiveBattler] = B_ACTION_NOTHING_FAINTED;
+                        RecordedBattle_SetBattlerAction(gActiveBattler, B_ACTION_NOTHING_FAINTED);
+                        gBattleCommunication[MULTISTRING_CHOOSER] = B_MSG_CANT_ESCAPE_2;
+                        gSelectionBattleScripts[gActiveBattler] = BattleScript_PrintCantEscapeFromBattle;
+                        gBattleCommunication[gActiveBattler] = STATE_SELECTION_SCRIPT;
+                        gBattleStruct->selectionScriptFinished[gActiveBattler] = FALSE;
+                        gBattleStruct->stateIdAfterSelScript[gActiveBattler] = STATE_WAIT_ACTION_CONFIRMED_STANDBY;
+                        return;
+                    }
                     gHitMarker |= HITMARKER_RUN;
                     gBattleCommunication[gActiveBattler]++;
                     break;

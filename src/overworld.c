@@ -364,8 +364,6 @@ static void (*const sMovementStatusHandler[])(struct LinkPlayerObjectEvent *, st
 // code
 void DoWhiteOut(void)
 {
-	ResetShinyChain();
-	
     RunScriptImmediately(EventScript_WhiteOut);
     SetMoney(&gSaveBlock1Ptr->money, GetMoney(&gSaveBlock1Ptr->money) / 2);
     HealPlayerParty();
@@ -549,12 +547,6 @@ const struct MapLayout *GetMapLayout(void)
 
 void ApplyCurrentWarp(void)
 {
-    if (gSaveBlock1Ptr->location.mapGroup != sWarpDestination.mapGroup
-        || gSaveBlock1Ptr->location.mapNum != sWarpDestination.mapNum)
-    {
-        ResetShinyChain();
-    }
-
     gLastUsedWarp = gSaveBlock1Ptr->location;
     gSaveBlock1Ptr->location = sWarpDestination;
     sFixedDiveWarp = sDummyWarpData;
@@ -1755,6 +1747,7 @@ void CB2_ContinueSavedGame(void)
     if (gSaveFileStatus == SAVE_STATUS_ERROR)
         ResetWinStreaks();
 
+    RestorePermanentKeyItems();
     LoadSaveblockMapHeader();
     ClearDiveAndHoleWarps();
     trainerHillMapId = GetCurrentTrainerHillMapId();
@@ -1830,7 +1823,7 @@ static void VBlankCB_Field(void)
     ProcessSpriteCopyRequests();
     ScanlineEffect_InitHBlankDmaTransfer();
     FieldUpdateBgTilemapScroll();
-    TransferPlttBuffer();
+    TransferPlttBufferWithDayNight(FALSE);
     TransferTilesetAnimsBuffer();
 }
 
@@ -2173,7 +2166,6 @@ static void InitOverworldGraphicsRegisters(void)
 
 static void ResumeMap(bool32 a1)
 {
-    DexNav_OnFieldReset(); // a hidden DexNav Pokémon doesn't survive the reset
     ResetTasks();
     ResetSpriteData();
     ResetPaletteFade();
@@ -2189,6 +2181,7 @@ static void ResumeMap(bool32 a1)
     FieldEffectActiveListClear();
     StartWeather();
     ResumePausedWeather();
+    DexNav_OnFieldReset();
     if (!a1)
         SetUpFieldTasks();
     RunOnResumeMapScript();

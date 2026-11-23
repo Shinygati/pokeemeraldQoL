@@ -390,8 +390,18 @@ static void npc_clear_strange_bits(struct ObjectEvent *objEvent)
 #define AUTO_RUN_DOUBLE_TAP_FRAMES 20
 static EWRAM_DATA u8 sAutoRunTapTimer = 0;
 
+void ResetAutoRunTapTimer(void)
+{
+    sAutoRunTapTimer = 0;
+}
+
 static void TryToggleAutoRun(u16 newKeys)
 {
+    if (ArePlayerFieldControlsLocked() || gMain.callback2 != CB2_Overworld)
+    {
+        ResetAutoRunTapTimer();
+        return;
+    }
     if (sAutoRunTapTimer != 0)
         sAutoRunTapTimer--;
     if (!(newKeys & B_BUTTON) || !FlagGet(FLAG_SYS_B_DASH))

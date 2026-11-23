@@ -51,11 +51,13 @@ bool8 TryStartDexnavSearch(void);
 void DexNav_OnMapChange(void);
 void DexNav_OnPlayerStep(void);
 void DexNav_OnFieldReset(void);
+void DexNav_OnMenuOpen(void);
 void DexNav_OnBattleEnd(void);
 void DexNav_OnMonCaught(struct Pokemon *mon);
 void DexNav_IncrementSearchLevel(u16 species);
 u16 DexNav_GetSearchLevel(u16 species);
 bool8 DexNav_IsSearchActive(void);
+bool8 DexNav_ShouldSuppressEncounter(u16 metatileBehavior);
 bool8 DexNav_MapHasEncounters(void);
 
 extern bool8 gDexnavBattle;

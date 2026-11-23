@@ -4,8 +4,16 @@ LilycoveCity_CoveLilyMotel_2F_MapScripts::
 LilycoveCity_CoveLilyMotel_2F_EventScript_GameDesigner::
 	lock
 	faceplayer
+	checkitem ITEM_SHINY_CHARM, 1
+	goto_if_eq VAR_RESULT, TRUE, LilycoveCity_CoveLilyMotel_2F_EventScript_HasShinyCharm
+	checkpcitem ITEM_SHINY_CHARM, 1
+	goto_if_eq VAR_RESULT, TRUE, LilycoveCity_CoveLilyMotel_2F_EventScript_HasShinyCharm
+	goto_if_set FLAG_SHINY_CHARM, LilycoveCity_CoveLilyMotel_2F_EventScript_RestoreShinyCharm
+	specialvar VAR_RESULT, HasSeenAllNationalMons
+	goto_if_eq VAR_RESULT, TRUE, LilycoveCity_CoveLilyMotel_2F_EventScript_GiveShinyCharm
 	call_if_unset FLAG_TEMP_2, LilycoveCity_CoveLilyMotel_2F_EventScript_ShowMeCompletedDex
 	call_if_set FLAG_TEMP_2, LilycoveCity_CoveLilyMotel_2F_EventScript_ShowDiploma
+LilycoveCity_CoveLilyMotel_2F_EventScript_CheckHoennDiploma::
 	specialvar VAR_RESULT, HasAllHoennMons
 	goto_if_eq VAR_RESULT, TRUE, LilycoveCity_CoveLilyMotel_2F_EventScript_AllHoennMonsFanfare
 	release
@@ -134,3 +142,45 @@ LilycoveCity_CoveLilyMotel_2F_Text_ContestsDoTakeStrategy:
 	.string "Devising CONTEST strategies is one way\n"
 	.string "of becoming a better TRAINER, I'd say.$"
 
+
+LilycoveCity_CoveLilyMotel_2F_EventScript_GiveShinyCharm::
+	msgbox LilycoveCity_CoveLilyMotel_2F_Text_NationalDexShinyCharm, MSGBOX_DEFAULT
+	goto LilycoveCity_CoveLilyMotel_2F_EventScript_ReceiveShinyCharm
+
+LilycoveCity_CoveLilyMotel_2F_EventScript_RestoreShinyCharm::
+	msgbox LilycoveCity_CoveLilyMotel_2F_Text_RestoreShinyCharm, MSGBOX_DEFAULT
+	goto LilycoveCity_CoveLilyMotel_2F_EventScript_ReceiveShinyCharm
+
+LilycoveCity_CoveLilyMotel_2F_EventScript_ReceiveShinyCharm::
+	giveitem ITEM_SHINY_CHARM
+	goto_if_eq VAR_RESULT, FALSE, Common_EventScript_ShowBagIsFull
+	setflag FLAG_SHINY_CHARM
+	msgbox LilycoveCity_CoveLilyMotel_2F_Text_ReceivedShinyCharm, MSGBOX_DEFAULT
+	release
+	end
+
+LilycoveCity_CoveLilyMotel_2F_EventScript_HasShinyCharm::
+	setflag FLAG_SHINY_CHARM
+	msgbox LilycoveCity_CoveLilyMotel_2F_Text_HasShinyCharm, MSGBOX_DEFAULT
+	goto LilycoveCity_CoveLilyMotel_2F_EventScript_CheckHoennDiploma
+
+LilycoveCity_CoveLilyMotel_2F_Text_NationalDexShinyCharm:
+	.string "You've seen every POKéMON in the\n"
+	.string "NATIONAL POKéDEX! Amazing!\p"
+	.string "Take this SHINY CHARM as a reward\n"
+	.string "for your incredible research!$"
+
+LilycoveCity_CoveLilyMotel_2F_Text_ReceivedShinyCharm:
+	.string "The SHINY CHARM works automatically.\n"
+	.string "Your shiny chances are now boosted!$"
+
+LilycoveCity_CoveLilyMotel_2F_Text_RestoreShinyCharm:
+	.string "You've already earned a SHINY CHARM.\p"
+	.string "Let me place it in your KEY ITEMS\n"
+	.string "pocket for you.$"
+
+LilycoveCity_CoveLilyMotel_2F_Text_HasShinyCharm:
+	.string "That SHINY CHARM is proof of your\n"
+	.string "amazing POKéMON research!\p"
+	.string "Keep it in your BAG, and may your\n"
+	.string "next discovery shine brightly!$"
