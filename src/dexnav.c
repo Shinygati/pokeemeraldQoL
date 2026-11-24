@@ -222,7 +222,8 @@ static const u8 sText_Type[] = _("TYPE");
 static const u8 sText_SearchLevel[] = _("SEARCH LEVEL");
 static const u8 sText_ChainLevel[] = _("CHAIN LEVEL");
 static const u8 sText_Ability[] = _("ABILITY");
-static const u8 sText_Help[] = _("{A_BUTTON} Search  {R_BUTTON} Bookmark  {B_BUTTON} Exit");
+static const u8 sText_Help[] = _("{A_BUTTON}Search {R_BUTTON}Mark {B_BUTTON}Back {SELECT_BUTTON}Shiny:OFF");
+static const u8 sText_HelpShinyOnly[] = _("{A_BUTTON}Search {R_BUTTON}Mark {B_BUTTON}Back {SELECT_BUTTON}Shiny:ON");
 static const u8 sText_AbilitySlash[] = _("{STR_VAR_1}/{STR_VAR_2}");
 static const u8 sText_Boosted[] = _("!");
 static const u8 sText_MonLevel[] = _("{LV}. {STR_VAR_1}");
@@ -443,13 +444,13 @@ static u8 RollPotential(u16 searchLevel, bool8 boost)
 }
 
 // Q32 probabilities keep the base chance exact without floating point.
-// The chain interpolates from normal odds to the previous capped-chain target;
-// Search Level, Shiny Charm and boosted encounters determine that target.
+// ORAS Search Level / Charm checks and milestone bonuses. At displayed chain
+// 99+, retain the 100th encounter's full shiny bonus on every subsequent scan.
 static u32 GetDexNavShinyThreshold(u16 searchLevel, u8 chain, bool8 boost, bool8 charm)
 {
     u64 one = (u64)1 << 32;
     u64 normalFailure = one;
-    u64 failure, baseChance, cappedChance, specialFailure;
+    u64 failure, specialFailure;
     u32 i, rolls, target = 0;
     u16 level = searchLevel;
 
@@ -469,21 +470,20 @@ static u32 GetDexNavShinyThreshold(u16 searchLevel, u8 chain, bool8 boost, bool8
     // 1/4096 without the Charm; three independent checks with it.
     for (i = 0; i < (charm ? 3 : 1); i++)
         normalFailure = (normalFailure * (one - one / 4096)) >> 32;
-    baseChance = one - normalFailure;
-
-    rolls = 1 + (charm ? 2 : 0) + (boost ? 4 : 0);
+    // The 50th encounter is generated at chain 49. Chain 99 is the 100th;
+    // retain its +10 milestone checks and +4 boost checks once the cap is near.
+    // This changes shiny odds only; ! level / IV bonuses keep their own roll.
+    rolls = 1 + (charm ? 2 : 0);
+    if (chain >= DEXNAV_CHAIN_MAX - 1)
+        rolls += 10 + 4;
+    else
+        rolls += (chain == 49 ? 5 : 0) + (boost ? 4 : 0);
     specialFailure = one - ((u64)target << 32) / 10000;
     failure = normalFailure;
     for (i = 0; i < rolls; i++)
         failure = (failure * specialFailure) >> 32;
 
-    // Preserve the 5/8 capped-chain rate, but never go below the base chance.
-    cappedChance = (one - failure) * 5 / 8;
-    if (cappedChance < baseChance)
-        cappedChance = baseChance;
-    if (chain > DEXNAV_CHAIN_MAX)
-        chain = DEXNAV_CHAIN_MAX;
-    return baseChance + (cappedChance - baseChance) * chain / DEXNAV_CHAIN_MAX;
+    return one - failure;
 }
 
 static bool8 RollDexNavShiny(u16 searchLevel, u8 chain, bool8 boost)
@@ -1681,6 +1681,13 @@ static void Task_InitDexNavSearch(u8 taskId)
     boost = ((chain + 1) % 5 == 0) || (Random32() % 100 < 4);
     sDexNavSearchDataPtr->boosted = boost;
     shiny = RollDexNavShiny(sDexNavSearchDataPtr->searchLevel, chain, boost);
+    // Filter this single scan's result. Never reroll a failed shiny check or
+    // force a shiny PID: encounter chance and the normal shiny odds still apply.
+    if (FlagGet(FLAG_DEXNAV_SHINY_ONLY) && !shiny)
+    {
+        EndSearchNotFound(taskId);
+        return;
+    }
     potential = RollPotential(sDexNavSearchDataPtr->searchLevel, boost);
     // Honor the rolled result: incidental shiny frames must not bypass the odds.
     do
@@ -1742,15 +1749,29 @@ bool8 TryStartDexnavSearch(void)
     u16 val = gSaveBlock1Ptr->dexNavRegistered;
     u8 taskId;
 
-    if (!FlagGet(FLAG_SYS_POKENAV_GET) || FuncIsActiveTask(Task_InitDexNavSearch) || FuncIsActiveTask(Task_SetUpDexNavSearch) || ArePlayerFieldControlsLocked())
+    if (!FlagGet(FLAG_SYS_POKENAV_GET) || ArePlayerFieldControlsLocked())
         return FALSE;
 
-    if (sDexNavModeActive)
+    // Stopping an existing search never requires a bookmark. Include a found
+    // target and both setup stages, so R also works between search frames.
+    if (sDexNavModeActive || sDexNavSearchActive || FuncIsActiveTask(Task_InitDexNavSearch) || FuncIsActiveTask(Task_SetUpDexNavSearch))
     {
         sDexNavModeActive = FALSE;
         taskId = FindTaskIdByFunc(Task_DexNavSearch);
         if (taskId != TASK_NONE)
             EndDexNavSearch(taskId); // it just leaves: no chain change
+        taskId = FindTaskIdByFunc(Task_SetUpDexNavSearch);
+        if (taskId != TASK_NONE)
+        {
+            StopHiddenMonFieldEffect();
+            EndSearchNotFound(taskId);
+        }
+        taskId = FindTaskIdByFunc(Task_InitDexNavSearch);
+        if (taskId != TASK_NONE)
+            DestroyTask(taskId);
+        sDexNavSearchActive = FALSE;
+        sSearchPausedForMenu = FALSE;
+        gSoftResetDisabled = FALSE;
         PlaySE(SE_PC_OFF);
         ScriptContext_SetupScript(EventScript_DexNavSearchOff);
         return TRUE;
@@ -1850,7 +1871,7 @@ static void Task_DexNavSearch(u8 taskId)
 
     // Walking too far away (and not standing in grass) loses the signal.
     walked = abs(gSaveBlock1Ptr->pos.x - sDexNavSearchDataPtr->startX) + abs(gSaveBlock1Ptr->pos.y - sDexNavSearchDataPtr->startY);
-    if (walked > DEXNAV_WALK_AWAY_DISTANCE && !IsPlayerOnGrass())
+    if (!sDexNavSearchDataPtr->mon.shiny && walked > DEXNAV_WALK_AWAY_DISTANCE && !IsPlayerOnGrass())
     {
         if (gSaveBlock1Ptr->dexNavChain < DEXNAV_CHAIN_MAX)
             DexNavChainReset();
@@ -1860,7 +1881,8 @@ static void Task_DexNavSearch(u8 taskId)
 
     // Walking up to it is fine; running (or riding a bike) anywhere scares it off,
     // once you've had a moment to stop (it can turn up while you're on your bike).
-    if (TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_DASH | PLAYER_AVATAR_FLAG_MACH_BIKE | PLAYER_AVATAR_FLAG_ACRO_BIKE)
+    if (!sDexNavSearchDataPtr->mon.shiny
+     && TestPlayerAvatarFlags(PLAYER_AVATAR_FLAG_DASH | PLAYER_AVATAR_FLAG_MACH_BIKE | PLAYER_AVATAR_FLAG_ACRO_BIKE)
      && gPlayerAvatar.tileTransitionState != T_NOT_MOVING && task->tFrameCount > DEXNAV_SCARE_GRACE_FRAMES)
     {
         DexNavChainDecrease();
@@ -1868,7 +1890,7 @@ static void Task_DexNavSearch(u8 taskId)
         return;
     }
 
-    if (task->tFrameCount > DEXNAV_TIMEOUT * 60)
+    if (!sDexNavSearchDataPtr->mon.shiny && task->tFrameCount > DEXNAV_TIMEOUT * 60)
     {
         // took too long
         DexNavChainDecrease();
@@ -1893,7 +1915,8 @@ static void Task_DexNavSearch(u8 taskId)
     }
 
     // In caves and on water the Pokémon may move once or twice as you approach.
-    if ((sDexNavSearchDataPtr->environment == ENCOUNTER_TYPE_WATER || GetCurrentMapType() == MAP_TYPE_UNDERGROUND)
+    if (!sDexNavSearchDataPtr->mon.shiny
+        && (sDexNavSearchDataPtr->environment == ENCOUNTER_TYPE_WATER || GetCurrentMapType() == MAP_TYPE_UNDERGROUND)
         && sDexNavSearchDataPtr->proximity < GetMovementProximityBySearchLevel()
         && sDexNavSearchDataPtr->movementCount < 2)
     {
@@ -1941,7 +1964,12 @@ static void Task_DexNavSearch(u8 taskId)
         task->tProximity = sDexNavSearchDataPtr->proximity;
     }
 
-    task->tFrameCount++;
+    // A protected shiny can wait indefinitely. Keep its animation clock small
+    // instead of overflowing the signed task counter after several minutes.
+    if (sDexNavSearchDataPtr->mon.shiny)
+        task->tFrameCount = (task->tFrameCount + 1) % DEXNAV_SCAN_PERIOD;
+    else
+        task->tFrameCount++;
 }
 
 #undef tProximity
@@ -2070,8 +2098,8 @@ void DexNav_OnBattleEnd(void)
         gSoftResetDisabled = FALSE;
     }
 
-    // Running from any wild Pokémon, DexNav or not, breaks the chain.
-    if (ran)
+    // Running breaks an unfinished chain; a capped chain is retained.
+    if (ran && gSaveBlock1Ptr->dexNavChain < DEXNAV_CHAIN_MAX)
         DexNavChainReset();
 
     if (!gDexnavBattle)
@@ -2792,7 +2820,8 @@ static void PrintHeaderAndHelp(void)
     CopyWindowToVram(WIN_HEADER, COPYWIN_FULL);
 
     FillWindowPixelBuffer(WIN_HELP, PIXEL_FILL(0));
-    AddTextPrinterParameterized3(WIN_HELP, FONT_NORMAL, 6, 1, sFontColor_White, TEXT_SKIP_DRAW, sText_Help);
+    AddTextPrinterParameterized3(WIN_HELP, FONT_SMALL, 3, 1, sFontColor_White, TEXT_SKIP_DRAW,
+                                 FlagGet(FLAG_DEXNAV_SHINY_ONLY) ? sText_HelpShinyOnly : sText_Help);
     CopyWindowToVram(WIN_HELP, COPYWIN_FULL);
 }
 
@@ -2957,6 +2986,15 @@ static void Task_DexNavMain(u8 taskId)
         sDexNavUiDataPtr->cursorCol = (sDexNavUiDataPtr->cursorCol >= maxCol) ? 0 : sDexNavUiDataPtr->cursorCol + 1;
         PlaySE(SE_RG_BAG_CURSOR);
         UpdateCursorPosition();
+    }
+    else if (JOY_NEW(SELECT_BUTTON))
+    {
+        if (FlagGet(FLAG_DEXNAV_SHINY_ONLY))
+            FlagClear(FLAG_DEXNAV_SHINY_ONLY);
+        else
+            FlagSet(FLAG_DEXNAV_SHINY_ONLY);
+        PlaySE(SE_SELECT);
+        PrintHeaderAndHelp();
     }
     else if (JOY_NEW(R_BUTTON))
     {

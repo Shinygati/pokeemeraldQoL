@@ -20,29 +20,34 @@ The Shiny Charm and toggleable EXP. SHARE use this hack's Key Item behavior. PKH
 Open DexNav through the PokéNav. Choose a Pokémon with **A** to search, **R** to bookmark it, or **B** to leave. Search Level is tracked per species, up to **999**; the chain caps at **100**.
 
 - Searching reveals hidden Pokémon in the appropriate grass, water or cave habitat. Ordinary encounters are suppressed only where the selected Pokémon can actually appear.
-- Approach a found Pokémon carefully. Running, cycling or waiting too long can scare it away.
+- Approach a found Pokémon carefully. Running, cycling or waiting too long can scare away non-shiny targets. **Shiny DexNav targets do not time out, flee from movement or distance, or move to another patch**; they remain until encountered, manually canceled or the map is left.
 - Higher Search Levels reveal more information and improve encounter potential. Boosted encounters are marked with **!**.
+- Press **SELECT** in DexNav to toggle **Shiny Only**. When ON, non-shiny scan results are hidden while you walk; only naturally rolled shiny targets appear. Encounter and shiny odds stay unchanged, and the setting is saved.
 - Opening menus hides the DexNav display and pauses the active encounter. Closing a menu restores the same found Pokémon.
+- Press **R** in the field to turn off an active search, even without a DexNav bookmark. This also cancels a found target or a search that is still being set up.
 - Defeating or catching a DexNav Pokémon increases the chain. Catching a shiny ends the chain.
 - Before chain 100, scares and timeouts reduce the chain. **At chain 100, these no longer reduce it**, so players can keep walking and searching.
-- Running from a wild battle breaks the chain. The chain belongs to one species; starting a DexNav encounter with another species starts a new chain.
+- Running from a wild battle breaks the chain **below 100**. **At chain 100, running preserves the chain**. The chain belongs to one species; starting a DexNav encounter with another species starts a new chain.
 - **Any map change breaks the chain**, including route boundaries, entering buildings, Fly and Teleport.
 - DexNav Pokémon can have a temporary battle-level bonus. On capture, their level, met level, experience and moves return to the legal encounter-table level; their PID, IVs and nature are preserved.
 
 ### Current DexNav shiny odds
 
-At chain 0, odds start at **1/4096 without the Charm**, or approximately **1/1366 with it**. The chance improves toward the chain-100 target as the chain grows. Search Level, the Charm and whether the encounter is boosted determine that target.
+DexNav uses the **original ORAS shiny formula**, with a custom permanent bonus at displayed **chain 99 or 100**. Search Level and the Shiny Charm improve the chance. At Search Level 0, odds are **1/4096 without the Charm** or approximately **1/1366 with it**.
 
-Approximate odds at **chain 100**, calculated from the current fixed-point implementation:
+The 50th encounter gets the ORAS milestone bonus. Once the displayed chain reaches **99**, every subsequent DexNav roll keeps the full ORAS 100th-encounter shiny bonus, including the four extra boosted shiny checks. This applies whether or not the target shows **!**. The separate ! battle-level and IV bonuses retain their normal schedule.
 
-| Search Level | Shiny Charm | Ordinary encounter | Boosted (!) encounter |
-| --- | --- | --- | --- |
-| 100 | No | 1/1896 | 1/494 |
-| 100 | Yes | 1/632 | 1/325 |
-| 999 | No | 1/868 | 1/195 |
-| 999 | Yes | 1/290 | 1/135 |
+Approximate odds for **every encounter at displayed chain 99+**:
 
-These are per-encounter probabilities, not guarantees. A chain of 100 does not automatically make every subsequent encounter boosted.
+| Search Level | Without Shiny Charm | With Shiny Charm |
+| --- | --- | --- |
+| 100 | 1/109 | 1/92 |
+| 131 | 1/94 | 1/80 |
+| 999 | 1/42 | 1/36 |
+
+These are per-encounter probabilities, not guarantees. Ordinary wild encounters, Eggs and other shiny systems are unchanged.
+
+Open the [offline DexNav shiny odds calculator](docs/dexnav-shiny-odds.html) for other Search Levels, chains and encounter types. Shiny Only filters results without changing the odds.
 
 ## Pokédex assistance
 
@@ -83,6 +88,7 @@ Defeat one opponent before throwing a Poké Ball. Running uses the selecting Pok
 
 ## Bag and party features
 
+- Register up to **four Key Items** with a compact, icon-only picker arranged **Up / Right / Down / Left** around the player. Press **SELECT**, then choose a D-pad direction to highlight its box red and press **A** to use the item; **B/SELECT** closes the picker. From the Bag, choose **REGISTER**, then highlight the desired direction and press **A** to assign or replace that slot. **DESELECT** removes an assignment without moving other directions. The picker also confirms a single registered item before use. Registrations are saved, with the previous registered item in the Up slot.
 - Press **START** in the field Bag to sort the current pocket **BY TYPE** or **BY NAME**, or mark/unmark the highlighted item as a favorite.
 - Save up to **eight favorites**, shown with a **+** marker at the top of their pocket. Each pocket remembers its sort choice. Unmarking a favorite selects the **first item slot**. Key Item registration works separately.
 - Choose **QUICK HEAL** from a Pokémon's party menu to cure status and restore HP using available medicine from the Bag. Smaller sufficient HP heals are preferred, and PP-restoring items are preserved.

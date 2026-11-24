@@ -11,6 +11,7 @@
 #include "decompress.h"
 #include "event_data.h"
 #include "event_object_movement.h"
+#include "event_object_lock.h"
 #include "event_scripts.h"
 #include "field_player_avatar.h"
 #include "field_specials.h"
@@ -1011,7 +1012,7 @@ static void BagMenu_ItemPrintCallback(u8 windowId, u32 itemIndex, u8 y)
         else
         {
             // Print registered icon
-            if (gSaveBlock1Ptr->registeredItem != ITEM_NONE && gSaveBlock1Ptr->registeredItem == itemId)
+            if (IsRegisteredKeyItem(itemId))
                 BlitBitmapToWindow(windowId, sRegisteredSelect_Gfx, 96, y - 1, 24, 16);
         }
     }
@@ -1656,7 +1657,7 @@ static void OpenContextMenu(u8 taskId)
                 gBagMenu->contextMenuItemsPtr = gBagMenu->contextMenuItemsBuffer;
                 gBagMenu->contextMenuNumItems = ARRAY_COUNT(sContextMenuItems_KeyItemsPocket);
                 memcpy(&gBagMenu->contextMenuItemsBuffer, &sContextMenuItems_KeyItemsPocket, sizeof(sContextMenuItems_KeyItemsPocket));
-                if (gSaveBlock1Ptr->registeredItem == gSpecialVar_ItemId)
+                if (IsRegisteredKeyItem(gSpecialVar_ItemId))
                     gBagMenu->contextMenuItemsBuffer[1] = ACTION_DESELECT;
                 if (gSpecialVar_ItemId == ITEM_MACH_BIKE || gSpecialVar_ItemId == ITEM_ACRO_BIKE)
                 {
@@ -2018,21 +2019,245 @@ static void Task_RemoveItemFromBag(u8 taskId)
     }
 }
 
-static void ItemMenu_Register(u8 taskId)
+
+
+// Four icon cards around the player: Up / Right / Down / Left. The same
+// direction assigns a registration in the Bag or uses it in the field.
+#define tRegCount data[2]
+#define tRegItem(i) data[4 + (i)]
+#define tRegReplacing data[8]
+#define tRegNewItem data[9]
+#define tRegBagTask data[10]
+
+struct RegisteredItemPickerGfx
+{
+    u8 windows[REGISTERED_KEY_ITEMS_COUNT];
+    u8 savedBagPriority;
+    u8 selected;
+    u16 paletteUnfaded[16];
+    u16 paletteFaded[16];
+};
+
+// Compact cards leave the player and surrounding map visible. Graphics are
+// already assembled in ROM, so opening never allocates icon sprites/palettes.
+static const u8 sRegisteredCardCoords[4][2] = {{13, 4}, {17, 8}, {13, 12}, {9, 8}};
+#include "data/registered_item_cards.h"
+
+static struct RegisteredItemPickerGfx *GetRegisteredPickerGfx(u8 taskId)
+{
+    return (struct RegisteredItemPickerGfx *)GetWordTaskArg(taskId, 12);
+}
+
+static void DrawRegisteredItemPicker(u8 taskId)
+{
+    struct RegisteredItemPickerGfx *gfx = GetRegisteredPickerGfx(taskId);
+    u8 i;
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+    {
+        u16 item = gTasks[taskId].tRegItem(i);
+        u8 card = item < ITEMS_COUNT ? sRegisteredCardIds[item] : 0;
+        CopyToWindowPixelBuffer(gfx->windows[i], (gfx->selected == i ? sRegisteredCardSelectedGraphics[card] : sRegisteredCardGraphics[card]), 512, 0);
+        PutWindowTilemap(gfx->windows[i]);
+        CopyWindowToVram(gfx->windows[i], COPYWIN_FULL);
+    }
+}
+
+static void CloseRegisteredItemPicker(u8 taskId)
+{
+    struct RegisteredItemPickerGfx *gfx = GetRegisteredPickerGfx(taskId);
+    u8 i;
+    bool8 replacing = gTasks[taskId].tRegReplacing;
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+    {
+        if (gfx->windows[i] != WINDOW_NONE)
+        {
+            ClearWindowTilemap(gfx->windows[i]);
+            RemoveWindow(gfx->windows[i]);
+        }
+    }
+    // Restore both copies exactly: field weather / night colours and the Bag's
+    // own text palette must not inherit the quick-item card colours.
+    CpuCopy16(gfx->paletteUnfaded, gPlttBufferUnfaded + BG_PLTT_ID(15), 32);
+    CpuCopy16(gfx->paletteFaded, gPlttBufferFaded + BG_PLTT_ID(15), 32);
+    if (replacing)
+    {
+        PutWindowTilemap(WIN_ITEM_LIST);
+        PutWindowTilemap(WIN_DESCRIPTION);
+        PutWindowTilemap(WIN_POCKET_NAME);
+        SetBgAttribute(0, BG_ATTR_PRIORITY, gfx->savedBagPriority);
+        ShowBg(0);
+    }
+    Free(gfx);
+    SetWordTaskArg(taskId, 12, 0);
+    ScheduleBgCopyTilemapToVram(0);
+}
+
+static void FinishBagItemRegistration(u8 taskId, bool8 changed)
 {
     s16 *data = gTasks[taskId].data;
-    u16 *scrollPos = &gBagPosition.scrollPosition[gBagPosition.pocket];
-    u16 *cursorPos = &gBagPosition.cursorPosition[gBagPosition.pocket];
-
-    if (gSaveBlock1Ptr->registeredItem == gSpecialVar_ItemId)
-        gSaveBlock1Ptr->registeredItem = ITEM_NONE;
-    else
-        gSaveBlock1Ptr->registeredItem = gSpecialVar_ItemId;
-    DestroyListMenuTask(tListTaskId, scrollPos, cursorPos);
-    LoadBagItemListBuffers(gBagPosition.pocket);
-    tListTaskId = ListMenuInit(&gMultiuseListMenuTemplate, *scrollPos, *cursorPos);
-    ScheduleBgCopyTilemapToVram(0);
+    u16 *scroll = &gBagPosition.scrollPosition[gBagPosition.pocket];
+    u16 *cursor = &gBagPosition.cursorPosition[gBagPosition.pocket];
+    if (changed)
+    {
+        DestroyListMenuTask(tListTaskId, scroll, cursor);
+        LoadBagItemListBuffers(gBagPosition.pocket);
+        tListTaskId = ListMenuInit(&gMultiuseListMenuTemplate, *scroll, *cursor);
+        ScheduleBgCopyTilemapToVram(0);
+    }
     ItemMenu_Cancel(taskId);
+}
+
+static void Task_RegisteredItemPicker(u8 taskId)
+{
+    struct Task *task = &gTasks[taskId];
+    u8 selected = REGISTERED_KEY_ITEMS_COUNT;
+    if (task->data[11] != 0)
+    {
+        task->data[11]--;
+        return;
+    }
+    if (gPaletteFade.active || MenuHelpers_ShouldWaitForLinkRecv())
+        return;
+    if (JOY_NEW(B_BUTTON | SELECT_BUTTON))
+    {
+        bool8 replacing = task->tRegReplacing;
+        u8 parent = task->tRegBagTask;
+        PlaySE(SE_SELECT);
+        CloseRegisteredItemPicker(taskId);
+        DestroyTask(taskId);
+        if (replacing)
+            FinishBagItemRegistration(parent, FALSE);
+        else
+        {
+            ScriptUnfreezeObjectEvents();
+            UnlockPlayerFieldControls();
+        }
+        return;
+    }
+    if (JOY_NEW(DPAD_UP)) selected = 0;
+    else if (JOY_NEW(DPAD_RIGHT)) selected = 1;
+    else if (JOY_NEW(DPAD_DOWN)) selected = 2;
+    else if (JOY_NEW(DPAD_LEFT)) selected = 3;
+    if (selected < REGISTERED_KEY_ITEMS_COUNT)
+    {
+        struct RegisteredItemPickerGfx *gfx = GetRegisteredPickerGfx(taskId);
+        if (gfx->selected != selected)
+        {
+            gfx->selected = selected;
+            PlaySE(SE_SELECT);
+            DrawRegisteredItemPicker(taskId);
+        }
+        return;
+    }
+    selected = GetRegisteredPickerGfx(taskId)->selected;
+    if (JOY_NEW(A_BUTTON) && selected < REGISTERED_KEY_ITEMS_COUNT)
+    {
+        u16 item = task->tRegItem(selected);
+        bool8 replacing = task->tRegReplacing;
+        u8 parent = task->tRegBagTask;
+        bool8 changed = FALSE;
+        if (!replacing && item == ITEM_NONE)
+        {
+            PlaySE(SE_FAILURE);
+            return;
+        }
+        if (replacing)
+            changed = ReplaceRegisteredKeyItem(selected, task->tRegNewItem);
+        PlaySE(SE_SELECT);
+        CloseRegisteredItemPicker(taskId);
+        if (replacing)
+        {
+            DestroyTask(taskId);
+            FinishBagItemRegistration(parent, changed);
+        }
+        else if (CheckBagHasItem(item, 1) && GetItemFieldFunc(item) != NULL)
+        {
+            gSpecialVar_ItemId = item;
+            memset(task->data, 0, sizeof(task->data));
+            task->data[3] = TRUE;
+            task->func = GetItemFieldFunc(item);
+        }
+        else
+        {
+            DestroyTask(taskId);
+            ScriptUnfreezeObjectEvents();
+            UnlockPlayerFieldControls();
+        }
+    }
+}
+
+static bool8 OpenRegisteredItemPicker(bool8 replacing, u8 parentTask)
+{
+    struct RegisteredItemPickerGfx *gfx;
+    struct WindowTemplate window = {0, 0, 0, 4, 4, 15, 100};
+    u8 i, taskId;
+    if (GetTaskCount() >= NUM_TASKS)
+        return FALSE;
+    gfx = AllocZeroed(sizeof(*gfx));
+    if (gfx == NULL)
+        return FALSE;
+    gfx->selected = REGISTERED_KEY_ITEMS_COUNT;
+    taskId = CreateTask(Task_RegisteredItemPicker, 8);
+    SetWordTaskArg(taskId, 12, (u32)gfx);
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+    {
+        gfx->windows[i] = WINDOW_NONE;
+    }
+    CpuCopy16(gPlttBufferUnfaded + BG_PLTT_ID(15), gfx->paletteUnfaded, 32);
+    CpuCopy16(gPlttBufferFaded + BG_PLTT_ID(15), gfx->paletteFaded, 32);
+    gTasks[taskId].data[11] = 1;
+    gTasks[taskId].tRegCount = CompactRegisteredKeyItems();
+    gTasks[taskId].tRegReplacing = replacing;
+    gTasks[taskId].tRegNewItem = gSpecialVar_ItemId;
+    gTasks[taskId].tRegBagTask = parentTask;
+    if (replacing)
+    {
+        // Draw on the Bag's text layer itself, then restore its windows on exit.
+        // The cards must not sit behind the item list or description panel.
+        gfx->savedBagPriority = GetBgAttribute(0, BG_ATTR_PRIORITY);
+        SetBgAttribute(0, BG_ATTR_PRIORITY, 0);
+        ShowBg(0);
+        window.baseBlock = 0x21D;
+    }
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+    {
+        u16 item = GetRegisteredKeyItem(i);
+        gTasks[taskId].tRegItem(i) = item;
+        window.tilemapLeft = sRegisteredCardCoords[i][0];
+        window.tilemapTop = sRegisteredCardCoords[i][1];
+        gfx->windows[i] = AddWindow(&window);
+        if (gfx->windows[i] == WINDOW_NONE)
+        {
+            CloseRegisteredItemPicker(taskId);
+            DestroyTask(taskId);
+            return FALSE;
+        }
+        window.baseBlock += 16;
+    }
+    LoadPalette(sRegisteredCardPalette, BG_PLTT_ID(15), 32);
+    DrawRegisteredItemPicker(taskId);
+    ScheduleBgCopyTilemapToVram(window.bg);
+    return TRUE;
+}
+
+#undef tRegCount
+#undef tRegItem
+#undef tRegReplacing
+#undef tRegNewItem
+#undef tRegBagTask
+
+static void ItemMenu_Register(u8 taskId)
+{
+    if (IsRegisteredKeyItem(gSpecialVar_ItemId))
+    {
+        FinishBagItemRegistration(taskId, ToggleRegisteredKeyItem(gSpecialVar_ItemId) == REGISTER_ITEM_CHANGED);
+        return;
+    }
+    RemoveContextWindow();
+    if (OpenRegisteredItemPicker(TRUE, taskId))
+        gTasks[taskId].func = TaskDummy;
+    else
+        FinishBagItemRegistration(taskId, FALSE);
 }
 
 static void ItemMenu_Give(u8 taskId)
@@ -2150,29 +2375,24 @@ static void Task_ItemContext_GiveToPC(u8 taskId)
 
 bool8 UseRegisteredKeyItemOnField(void)
 {
-    u8 taskId;
-
+    u8 count;
     if (InUnionRoom() == TRUE || CurrentBattlePyramidLocation() != PYRAMID_LOCATION_NONE || InBattlePike() || InMultiPartnerRoom() == TRUE)
         return FALSE;
     HideMapNamePopUpWindow();
     ChangeBgY_ScreenOff(0, 0, BG_COORD_SET);
-    if (gSaveBlock1Ptr->registeredItem != ITEM_NONE)
+    count = CompactRegisteredKeyItems();
+    if (count != 0)
     {
-        if (CheckBagHasItem(gSaveBlock1Ptr->registeredItem, 1) == TRUE)
-        {
-            LockPlayerFieldControls();
-            FreezeObjectEvents();
-            PlayerFreeze();
-            StopPlayerAvatar();
-            gSpecialVar_ItemId = gSaveBlock1Ptr->registeredItem;
-            taskId = CreateTask(GetItemFieldFunc(gSaveBlock1Ptr->registeredItem), 8);
-            gTasks[taskId].tUsingRegisteredKeyItem = TRUE;
+        LockPlayerFieldControls();
+        FreezeObjectEvents();
+        PlayerFreeze();
+        StopPlayerAvatar();
+        PlaySE(SE_SELECT);
+        if (OpenRegisteredItemPicker(FALSE, TASK_NONE))
             return TRUE;
-        }
-        else
-        {
-            gSaveBlock1Ptr->registeredItem = ITEM_NONE;
-        }
+        ScriptUnfreezeObjectEvents();
+        UnlockPlayerFieldControls();
+        return TRUE;
     }
     ScriptContext_SetupScript(EventScript_SelectWithoutRegisteredItem);
     return TRUE;

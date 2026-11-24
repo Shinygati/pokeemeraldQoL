@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DexNav Shiny Odds · pokeemeraldQoL</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f4ef;--card:#fff;--ink:#232323;--muted:#65666d;--line:#dfddd7;--accent:#bd491e;--soft:#fff0e5}
+@media(prefers-color-scheme:dark){:root{--bg:#18191c;--card:#232429;--ink:#f1f0ed;--muted:#b2b1b9;--line:#414147;--accent:#ff9d69;--soft:#382b24}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}main{max-width:760px;margin:auto;padding:32px 20px 48px}h1{font-size:28px;margin:0}h2{font-size:17px;margin:0 0 12px}.muted,small{color:var(--muted)}.intro{margin:5px 0 24px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0}.field{display:block;margin-bottom:20px}.label{display:flex;justify-content:space-between;gap:12px;margin-bottom:7px;font-weight:650}.row{display:flex;align-items:center;gap:16px}input[type=range]{width:100%;accent-color:var(--accent)}input[type=number]{width:92px;padding:8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font:inherit}select{width:100%;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font:inherit}.check{display:flex;align-items:flex-start;gap:10px;margin-top:16px}.check input{margin-top:6px;accent-color:var(--accent)}.check small{display:block}.result{text-align:center}.big{font-size:clamp(40px,8vw,60px);font-weight:750;line-height:1.3;color:var(--accent);font-variant-numeric:tabular-nums}.badge{background:var(--soft);color:var(--accent);border-radius:8px;padding:8px 12px;margin-top:14px}dl{display:grid;grid-template-columns:1fr auto;gap:8px 16px;margin:0}dt{color:var(--muted)}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}th,td{padding:9px 5px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:500}.current{color:var(--accent);font-weight:700}.scroll{overflow-x:auto}.foot{font-size:13px;color:var(--muted)}summary{cursor:pointer;font-weight:650}code{font-size:12px}a{color:var(--accent)}
+</style>
+</head>
+<body><main>
+<h1>DexNav Shiny Odds</h1>
+<p class="intro muted">pokeemeraldQoL · ORAS odds + permanent chain 99+ bonus · Works entirely offline</p>
+<section class="card" aria-label="Calculator settings">
+<label class="field"><span class="label">Search Level <small>0–999</small></span><span class="row"><input id="searchRange" aria-label="Search Level slider" type="range" min="0" max="999" value="100"><input id="search" aria-label="Search Level" type="number" min="0" max="999" value="100"></span></label>
+<label class="field"><span class="label">Current chain <small>Before the next encounter</small></span><span class="row"><input id="chainRange" aria-label="Chain slider" type="range" min="0" max="100" value="100"><input id="chain" aria-label="Current chain" type="number" min="0" max="100" value="100"></span></label>
+<label class="field"><span class="label">Encounter</span><select id="boost"><option value="auto">Automatic — includes the chance of a boost</option><option value="normal">Ordinary — no ! boost</option><option value="boosted">Boosted — ! target</option></select></label>
+<label class="check"><input id="charm" type="checkbox" checked><span><strong>Shiny Charm</strong><small>The permanent Key Item reward is owned.</small></span></label>
+<label class="check"><input id="shinyOnly" type="checkbox"><span><strong>Shiny Only filter</strong><small>Hides non-shiny results; does not change shiny odds.</small></span></label>
+</section>
+<section class="card result" aria-live="polite" aria-atomic="true">
+<div class="muted">Shiny roll chance</div><div id="odds" class="big"></div><div id="percent" class="muted"></div><div id="boostNote" class="badge"></div><p id="filterNote" class="foot"></p>
+</section>
+<section class="card"><h2>This setup</h2><dl>
+<dt>At chain 0 (this Search Level)</dt><dd id="base"></dd>
+<dt>Ordinary target</dt><dd id="ordinary"></dd>
+<dt>Boosted (!) target</dt><dd id="boosted"></dd>
+<dt>Next encounter is number</dt><dd id="next"></dd>
+<dt>! level / IV boost chance</dt><dd id="boostChance"></dd>
+</dl></section>
+<section class="card"><h2>Chain comparison</h2><p class="foot">Uses the same Search Level, Charm and encounter selection as above.</p><div class="scroll"><table><thead><tr><th>Chain</th><th>Approx. odds</th><th>Chance</th></tr></thead><tbody id="comparison"></tbody></table></div></section>
+<details class="card"><summary>How the calculator matches the game</summary>
+<p class="foot">The ordinary and boosted thresholds use the same integer rounding and 32-bit fixed-point operations as <code>GetDexNavShinyThreshold</code> in <code>src/dexnav.c</code>. Displayed “1 in” values are rounded. Automatic mode averages the two thresholds using the boost probability.</p>
+<p class="foot">DexNav uses the original ORAS formula. At Search Level 0 the base rate is 1/4096 without the Charm, or three independent checks with it. Search Level contributes six units per level up to 100, two per level from 101–200, and one per level afterward; the total is divided by 100 and rounded up. Each DexNav check succeeds against that target out of 10,000.</p>
+<p class="foot">DexNav gets one check without the Charm or three with it, plus four on boosted targets. The 50th encounter (displayed chain 49 before battle) gets five additional checks. At displayed chain 99 or 100, every roll permanently gets the 100th encounter's ten additional checks plus the four boosted shiny checks. There is no 5/8 reduction or linear chain scaling.</p>
+<p class="foot">The ! marker's level and IV bonus remains separate: every fifth upcoming encounter is guaranteed boosted, and other encounters have about a 4% boost chance. At chain 99+, the maximum shiny odds apply even when the target does not show !. “Ordinary” and “Boosted” therefore show the same shiny chance at chain 99+.</p>
+</details>
+<p class="foot">These odds apply to an eligible shiny roll after the habitat, encounter-find and patch checks. Walking steps can produce no roll. Legal Pokémon generation must also succeed before a target appears. Probabilities do not guarantee a shiny within a particular number of attempts.</p>
+<p class="foot">At chain 100, running from battle preserves the chain. Catching a shiny, encountering another DexNav species or changing maps still resets it. Shiny DexNav targets do not time out or flee from movement or distance.</p>
+</main>
+<script>
+'use strict';
+const ONE = 1n << 32n;
+function shinyThreshold(search, chain, boost, charm) {
+  let level = Math.max(0, Math.min(999, Math.trunc(search))), target = 0;
+  if (level > 200) { target += level - 200; level = 200; }
+  if (level > 100) { target += level * 2 - 200; level = 100; }
+  target += level * 6;
+  target = Math.floor((target + 99) / 100);
+  let normalFailure = ONE;
+  for (let i = 0; i < (charm ? 3 : 1); i++) normalFailure = normalFailure * (ONE - ONE / 4096n) >> 32n;
+  chain = Math.max(0, Math.min(100, Math.trunc(chain)));
+  const rolls = 1 + (charm ? 2 : 0) + (chain >= 99 ? 14 : (chain === 49 ? 5 : 0) + (boost ? 4 : 0));
+  const specialFailure = ONE - (BigInt(target) << 32n) / 10000n;
+  let failure = normalFailure;
+  for (let i = 0; i < rolls; i++) failure = failure * specialFailure >> 32n;
+  return ONE - failure;
+}
+function boostProbability(chain) {
+  if ((chain + 1) % 5 === 0) return 1;
+  // Exact fraction for uniform Random32() % 100 < 4.
+  return Number((ONE / 100n) * 4n + 4n) / Number(ONE);
+}
+function calculate(search, chain, charm, mode) {
+  const ordinary = Number(shinyThreshold(search, chain, false, charm)) / Number(ONE);
+  const boosted = Number(shinyThreshold(search, chain, true, charm)) / Number(ONE);
+  const boostChance = boostProbability(chain);
+  const chance = mode === 'normal' ? ordinary : mode === 'boosted' ? boosted : ordinary * (1 - boostChance) + boosted * boostChance;
+  return {ordinary, boosted, boostChance, chance};
+}
+const $ = id => document.getElementById(id);
+const fmtOdds = p => '1 in ' + Math.round(1 / p).toLocaleString();
+const fmtPercent = p => (p * 100).toFixed(5) + '%';
+function update() {
+  const search = +$('search').value, chain = +$('chain').value, charm = $('charm').checked, mode = $('boost').value;
+  const result = calculate(search, chain, charm, mode);
+  $('odds').textContent = fmtOdds(result.chance);
+  $('percent').textContent = fmtPercent(result.chance) + ' per eligible roll';
+  const forced = (chain + 1) % 5 === 0;
+  $('boostNote').textContent = chain >= 99 ? 'Maximum shiny bonus retained (chain 99+)' : mode === 'auto' ? forced ? 'Next encounter is guaranteed boosted' : 'Includes the ordinary / boosted mix' : mode === 'boosted' ? 'Showing a boosted (!) target' : forced ? 'Hypothetical ordinary target — next encounter is guaranteed boosted' : 'Showing an ordinary target';
+  $('filterNote').textContent = $('shinyOnly').checked ? 'Shiny Only: non-shiny results stay hidden. Every revealed target is shiny, but the roll chance above is unchanged.' : 'Shiny Only is OFF: ordinary non-shiny targets can also appear.';
+  $('base').textContent = fmtOdds(Number(shinyThreshold(search, 0, false, charm)) / Number(ONE));
+  $('ordinary').textContent = fmtOdds(result.ordinary);
+  $('boosted').textContent = fmtOdds(result.boosted);
+  $('next').textContent = String(chain + 1);
+  $('boostChance').textContent = forced ? '100% — every fifth' : '4%';
+  const chains = [...new Set([0, 4, 9, 25, 49, 50, 75, 98, 99, 100, chain])].sort((a,b) => a-b);
+  $('comparison').innerHTML = chains.map(c => { const p = calculate(search, c, charm, mode).chance; return '<tr class="' + (c === chain ? 'current' : '') + '"><td>' + c + '</td><td>' + fmtOdds(p) + '</td><td>' + fmtPercent(p) + '</td></tr>'; }).join('');
+}
+function bind(range, number, max) {
+  $(range).addEventListener('input', () => { $(number).value = $(range).value; update(); });
+  $(number).addEventListener('input', () => { const n = Math.max(0, Math.min(max, Math.trunc(+$(number).value || 0))); $(number).value = n; $(range).value = n; update(); });
+}
+bind('searchRange', 'search', 999); bind('chainRange', 'chain', 100);
+for (const id of ['charm', 'boost', 'shinyOnly']) $(id).addEventListener('change', update);
+update();
+</script>
+</body></html>

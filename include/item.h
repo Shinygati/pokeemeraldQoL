@@ -34,6 +34,16 @@ struct BagPocket
 extern const struct Item gItems[];
 extern struct BagPocket gBagPockets[];
 
+#define REGISTERED_KEY_ITEMS_COUNT 4
+#define REGISTER_ITEM_FAILED 0
+#define REGISTER_ITEM_CHANGED 1
+#define REGISTER_ITEM_FULL 2
+u16 GetRegisteredKeyItem(u8 slot);
+bool8 IsRegisteredKeyItem(u16 item);
+u8 CompactRegisteredKeyItems(void);
+u8 ToggleRegisteredKeyItem(u16 item);
+bool8 ReplaceRegisteredKeyItem(u8 slot, u16 item);
+
 bool8 IsBagItemFavorite(u16 item);
 bool8 ToggleBagItemFavorite(u16 item);
 u8 GetBagSortMode(u8 pocket);

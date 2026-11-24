@@ -657,17 +657,112 @@ void CompactPCItems(void)
     }
 }
 
+
+// Slot one stays in Emerald's native field for legacy saves and link tools.
+// Extra slots use verified-unused permanent vars; neither save block grows.
+u16 GetRegisteredKeyItem(u8 slot)
+{
+    if (slot == 0)
+        return gSaveBlock1Ptr->registeredItem;
+    if (slot < REGISTERED_KEY_ITEMS_COUNT)
+        return VarGet(VAR_REGISTERED_ITEM_2 + slot - 1);
+    return ITEM_NONE;
+}
+
+static void SetRegisteredKeyItem(u8 slot, u16 item)
+{
+    if (slot == 0)
+        gSaveBlock1Ptr->registeredItem = item;
+    else if (slot < REGISTERED_KEY_ITEMS_COUNT)
+        VarSet(VAR_REGISTERED_ITEM_2 + slot - 1, item);
+}
+
+static bool8 IsValidRegisteredKeyItem(u16 item)
+{
+    return item != ITEM_NONE && item < ITEMS_COUNT
+        && GetItemPocket(item) == POCKET_KEY_ITEMS
+        && GetItemFieldFunc(item) != NULL
+        && CheckBagHasItem(item, 1);
+}
+
+bool8 IsRegisteredKeyItem(u16 item)
+{
+    u8 i;
+    if (item == ITEM_NONE)
+        return FALSE;
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+        if (GetRegisteredKeyItem(i) == item)
+            return TRUE;
+    return FALSE;
+}
+
+u8 CompactRegisteredKeyItems(void)
+{
+    u8 i, j, count = 0;
+    // Sanitize without packing: each saved slot is a permanent D-pad direction.
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+    {
+        u16 item = GetRegisteredKeyItem(i);
+        if (!IsValidRegisteredKeyItem(item))
+        {
+            SetRegisteredKeyItem(i, ITEM_NONE);
+            continue;
+        }
+        for (j = 0; j < i && GetRegisteredKeyItem(j) != item; j++);
+        if (j != i)
+            SetRegisteredKeyItem(i, ITEM_NONE);
+        else
+            count++;
+    }
+    return count;
+}
+
+u8 ToggleRegisteredKeyItem(u16 item)
+{
+    u8 i;
+    CompactRegisteredKeyItems();
+    if (!IsValidRegisteredKeyItem(item))
+        return REGISTER_ITEM_FAILED;
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+    {
+        if (GetRegisteredKeyItem(i) == item)
+        {
+            SetRegisteredKeyItem(i, ITEM_NONE);
+            return REGISTER_ITEM_CHANGED;
+        }
+    }
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
+    {
+        if (GetRegisteredKeyItem(i) == ITEM_NONE)
+        {
+            SetRegisteredKeyItem(i, item);
+            return REGISTER_ITEM_CHANGED;
+        }
+    }
+    return REGISTER_ITEM_FULL;
+}
+
+bool8 ReplaceRegisteredKeyItem(u8 slot, u16 item)
+{
+    CompactRegisteredKeyItems();
+    if (slot >= REGISTERED_KEY_ITEMS_COUNT || !IsValidRegisteredKeyItem(item) || IsRegisteredKeyItem(item))
+        return FALSE;
+    SetRegisteredKeyItem(slot, item);
+    return TRUE;
+}
+
 void SwapRegisteredBike(void)
 {
-    switch (gSaveBlock1Ptr->registeredItem)
+    u8 i;
+    for (i = 0; i < REGISTERED_KEY_ITEMS_COUNT; i++)
     {
-    case ITEM_MACH_BIKE:
-        gSaveBlock1Ptr->registeredItem = ITEM_ACRO_BIKE;
-        break;
-    case ITEM_ACRO_BIKE:
-        gSaveBlock1Ptr->registeredItem = ITEM_MACH_BIKE;
-        break;
+        u16 item = GetRegisteredKeyItem(i);
+        if (item == ITEM_MACH_BIKE)
+            SetRegisteredKeyItem(i, ITEM_ACRO_BIKE);
+        else if (item == ITEM_ACRO_BIKE)
+            SetRegisteredKeyItem(i, ITEM_MACH_BIKE);
     }
+    CompactRegisteredKeyItems();
 }
 
 u16 BagGetItemIdByPocketPosition(u8 pocketId, u16 pocketPos)
